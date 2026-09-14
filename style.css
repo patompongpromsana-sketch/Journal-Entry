@@ -1,0 +1,204 @@
+/* สมุดบัญชีของฉัน — style.css */
+/* โทนสี "Somewhere After Rain": ครีม-โอลีฟ-เขียวเซจ-อิฐ-ทองอำพัน */
+  :root {
+    color-scheme: light;
+    --bg: #F3EDE3;
+    --surface: #FBF8F1;
+    --surface-2: #ECE3D0;
+    --border: #DED0B4;
+    --border-strong: #C0B498;
+    --ink: #3A3618;
+    --ink-soft: #565134;
+    --muted: #8C8467;
+    --brand: #5C6B45;
+    --brand-deep: #46512F;
+    --income: #8FA37E;
+    --income-bg: #E5E7DA;
+    --expense: #B5674A;
+    --expense-bg: #EEDED3;
+    --invest: #C98C4A;
+    --invest-bg: #F1E2D0;
+    --font-th: 'Sarabun', 'Noto Sans Thai', sans-serif;
+    --font-display: 'Trirong', 'Sarabun', serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #1C1A12;
+      --surface: #262319;
+      --surface-2: #302C1E;
+      --border: #443F2B;
+      --border-strong: #6E6955;
+      --ink: #EDE6D3;
+      --ink-soft: #C4BC9E;
+      --muted: #9C9478;
+      --brand: #A9B98F;
+      --brand-deep: #C7D4AE;
+      --income: #A9C29A;
+      --income-bg: #434635;
+      --expense: #D98F72;
+      --expense-bg: #4D3B2D;
+      --invest: #E0AD68;
+      --invest-bg: #4F412A;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #1C1A12; --surface: #262319; --surface-2: #302C1E; --border: #443F2B;
+    --border-strong: #6E6955; --ink: #EDE6D3; --ink-soft: #C4BC9E; --muted: #9C9478;
+    --brand: #A9B98F; --brand-deep: #C7D4AE;
+    --income: #A9C29A; --income-bg: #434635; --expense: #D98F72; --expense-bg: #4D3B2D;
+    --invest: #E0AD68; --invest-bg: #4F412A;
+  }
+  * { box-sizing: border-box; }
+  html, body { background: var(--bg); }
+  body {
+    margin: 0; color: var(--ink); font-family: var(--font-th);
+    -webkit-font-smoothing: antialiased;
+  }
+  button, input, select { font-family: var(--font-th); }
+  button:focus-visible, select:focus-visible, input:focus-visible { outline: 2px solid var(--brand); outline-offset: 2px; }
+
+
+  .app { max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: 92px; position: relative; }
+  .topbar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 18px 16px 6px; display: flex; align-items: center; gap: 10px; }
+  .topbar-icon { font-size: 26px; line-height: 1; }
+  .topbar-name { font-size: 17px; font-weight: 600; font-family: var(--font-display); }
+  .sync-status { font-size: 12px; color: var(--muted); margin-top: 1px; }
+
+  .tab-content { padding: 10px 16px 16px; display: flex; flex-direction: column; gap: 12px; }
+
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: 16px; padding: 16px; }
+  .hero-label { font-size: 13px; color: var(--muted); margin-bottom: 4px; }
+  .hero-value { font-size: 30px; font-weight: 700; font-variant-numeric: tabular-nums; letter-spacing: -0.3px; font-family: var(--font-display); }
+  .hero-split { display: flex; gap: 16px; margin-top: 10px; font-size: 13px; color: var(--ink-soft); flex-wrap: wrap; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 5px; }
+  .dot-cash { background: var(--ink-soft); }
+  .dot-invest { background: var(--invest); }
+  .dot-debt { background: var(--expense); }
+  .invest-hero .hero-value { color: var(--invest); }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .stat-card { padding: 14px 16px; }
+  .stat-label { font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .stat-value { font-size: 18px; font-weight: 600; font-variant-numeric: tabular-nums; font-family: var(--font-display); }
+  .income-text { color: var(--income); }
+  .expense-text { color: var(--expense); }
+  .small-bold { font-size: 13px; font-weight: 600; }
+
+  .card-title { font-size: 15px; font-weight: 600; font-family: var(--font-display); }
+  .card-title-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+  .list-header { padding: 2px 2px; }
+
+  .bar-row { display: grid; grid-template-columns: 84px 1fr 78px; align-items: center; gap: 8px; padding: 6px 0; font-size: 13px; }
+  .bar-row-label { color: var(--ink-soft); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .bar-track { background: var(--surface-2); border-radius: 6px; height: 8px; overflow: hidden; }
+  .bar-fill { background: var(--expense); height: 100%; border-radius: 6px; }
+  .bar-row-amt { text-align: right; font-variant-numeric: tabular-nums; }
+
+  .trend-chart-wrap { margin-top: 6px; }
+  .legend-row { display: flex; flex-wrap: wrap; gap: 10px 14px; margin-top: 8px; padding-bottom: 10px; border-bottom: 1px solid var(--border); }
+  .legend-item { display: flex; align-items: center; font-size: 12px; color: var(--ink-soft); }
+  .legend-dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; margin-right: 5px; flex-shrink: 0; }
+  .trend-detail { margin-top: 4px; }
+  .trend-detail-title { font-size: 12px; color: var(--muted); margin-bottom: 2px; }
+
+  .empty-note { color: var(--muted); font-size: 13px; padding: 10px 0; text-align: center; }
+  .link-btn { background: none; border: none; color: var(--brand); font-size: 13px; font-weight: 600; padding: 4px 0; cursor: pointer; text-decoration: underline; text-underline-offset: 2px; }
+
+  .tx-row { display: flex; align-items: center; justify-content: space-between; padding: 11px 0; border-bottom: 1px solid var(--border); cursor: pointer; gap: 10px; }
+  .tx-row:last-child { border-bottom: none; }
+  .tx-cat { font-size: 14px; font-weight: 500; }
+  .tx-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .tx-side { text-align: right; flex-shrink: 0; }
+  .tx-amt { font-size: 14px; font-weight: 600; font-variant-numeric: tabular-nums; }
+  .tx-date { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+  .month-nav { display: flex; align-items: center; justify-content: space-between; padding: 4px 2px; }
+  .month-label { font-weight: 600; font-size: 15px; font-family: var(--font-display); }
+  .icon-btn { background: var(--surface); border: 1px solid var(--border); width: 32px; height: 32px; border-radius: 50%; font-size: 16px; cursor: pointer; color: var(--ink); display: inline-flex; align-items: center; justify-content: center; }
+  .icon-btn.danger { color: var(--expense); border-color: var(--expense); background: none; width: 24px; height: 24px; font-size: 12px; }
+
+  .filter-row { display: flex; gap: 8px; }
+  .select-sm { flex: 1; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 13px; }
+  .list-card { padding: 4px 16px; }
+
+  .holding-card { display: flex; flex-direction: column; gap: 10px; }
+  .holding-top { display: flex; justify-content: space-between; cursor: pointer; gap: 10px; }
+  .holding-name { font-weight: 600; font-size: 15px; font-family: var(--font-display); }
+  .tag { font-size: 11px; background: var(--invest-bg); color: var(--invest); padding: 2px 7px; border-radius: 20px; margin-left: 6px; font-weight: 500; }
+  .holding-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .holding-value-col { text-align: right; flex-shrink: 0; }
+  .holding-value { font-weight: 600; font-variant-numeric: tabular-nums; }
+  .holding-meta { display: flex; gap: 14px; flex-wrap: wrap; font-size: 12px; color: var(--ink-soft); border-top: 1px solid var(--border); padding-top: 10px; }
+  .holding-actions { display: flex; gap: 8px; }
+  .chip-btn { flex: 1; background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 9px; font-size: 12px; color: var(--ink); cursor: pointer; }
+
+  .debt-card { display: flex; flex-direction: column; gap: 10px; cursor: pointer; }
+  .debt-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
+  .debt-name { font-weight: 600; font-size: 15px; font-family: var(--font-display); }
+  .debt-remaining { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .debt-remaining-label { font-size: 11px; color: var(--muted); font-weight: 400; display: block; }
+  .progress-track { background: var(--surface-2); border-radius: 6px; height: 8px; overflow: hidden; }
+  .progress-fill { background: var(--expense); height: 100%; border-radius: 6px; }
+  .debt-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); }
+  .detail-nav { display: flex; justify-content: space-between; align-items: center; padding: 2px 2px; }
+  .year-table { margin-top: 8px; }
+  .year-row { display: grid; grid-template-columns: 50px 1fr 1fr 1fr; gap: 6px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
+  .year-row span:first-child { text-align: left; font-weight: 500; font-variant-numeric: normal; }
+  .year-row.year-header { color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--border-strong); padding-bottom: 6px; font-variant-numeric: normal; }
+  .year-row:last-child { border-bottom: none; }
+  .tax-note { text-align: left; padding: 0 0 10px; font-size: 12px; line-height: 1.5; border-bottom: 1px solid var(--border); margin-bottom: 4px; }
+  .debt-mini-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; border-bottom: 1px solid var(--border); font-size: 13px; }
+  .debt-mini-row:last-child { border-bottom: none; }
+  .debt-mini-name { flex: 0 0 32%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .debt-mini-row .progress-track { flex: 1; }
+  .debt-mini-val { flex: 0 0 auto; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .budget-row { padding: 8px 0; }
+  .budget-row-top { display: flex; justify-content: space-between; font-size: 13px; margin-bottom: 5px; }
+  .progress-fill.budget-ok { background: var(--income); }
+  .progress-fill.budget-warn { background: var(--invest); }
+  .progress-fill.budget-over { background: var(--expense); }
+
+  .settings-row { display: flex; align-items: center; justify-content: space-between; padding: 12px 0; border-bottom: 1px solid var(--border); cursor: pointer; gap: 10px; }
+  .settings-row:last-child { border-bottom: none; }
+  .settings-row-title { font-size: 14px; font-weight: 500; }
+  .settings-row-sub { font-size: 12px; color: var(--muted); margin-top: 2px; }
+  .settings-row-val { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .secondary-btn { background: var(--surface-2); border: 1px solid var(--border); border-radius: 10px; padding: 11px; font-size: 13px; color: var(--ink); cursor: pointer; margin-top: 4px; }
+  .full-btn { width: 100%; }
+
+  .fab-wrap { position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px; pointer-events: none; z-index: 8; }
+  .fab { position: absolute; right: 18px; bottom: 0; pointer-events: auto; width: 52px; height: 52px; border-radius: 50%; background: var(--brand); color: var(--bg); border: none; font-size: 26px; cursor: pointer; box-shadow: 0 2px 10px rgba(0,0,0,0.2); display: flex; align-items: center; justify-content: center; }
+  .fab-wrap.hidden { display: none; }
+
+  .tabbar-wrap { position: fixed; bottom: 0; left: 50%; transform: translateX(-50%); width: 100%; max-width: 480px; background: var(--surface); border-top: 1px solid var(--border); z-index: 7; padding-bottom: env(safe-area-inset-bottom); }
+  .tabbar { display: flex; }
+  .tab-btn { flex: 1; background: none; border: none; padding: 10px 4px 8px; display: flex; flex-direction: column; align-items: center; gap: 4px; color: var(--muted); font-size: 11px; cursor: pointer; }
+  .tab-btn.active { color: var(--brand); }
+  .tab-btn svg { width: 20px; height: 20px; display: block; }
+
+  .modal-overlay { position: fixed; inset: 0; background: rgba(28,24,14,0.45); display: none; align-items: flex-end; justify-content: center; z-index: 20; }
+  .modal-overlay.open { display: flex; }
+  .modal { background: var(--surface); width: 100%; max-width: 480px; border-radius: 20px 20px 0 0; padding: 20px; max-height: 88vh; overflow-y: auto; }
+  .modal-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .modal-title { font-size: 16px; font-weight: 600; font-family: var(--font-display); }
+  .modal-form { display: flex; flex-direction: column; gap: 12px; }
+  .field { display: flex; flex-direction: column; gap: 6px; font-size: 13px; color: var(--ink-soft); }
+  .field input, .field select { padding: 11px 12px; border-radius: 10px; border: 1px solid var(--border); background: var(--bg); color: var(--ink); font-size: 15px; width: 100%; }
+  .type-toggle { display: flex; gap: 8px; }
+  .type-btn { flex: 1; padding: 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface-2); font-size: 13px; cursor: pointer; color: var(--ink-soft); }
+  .type-btn.active { color: var(--brand); font-weight: 600; border-color: var(--brand); }
+  .type-btn.active.expense { background: var(--expense-bg); color: var(--expense); border-color: var(--expense); }
+  .type-btn.active.income { background: var(--income-bg); color: var(--income); border-color: var(--income); }
+  .modal-actions { display: flex; align-items: center; justify-content: space-between; margin-top: 6px; }
+  .primary-btn { background: var(--brand); color: var(--bg); border: none; padding: 12px 22px; border-radius: 12px; font-size: 15px; font-weight: 600; cursor: pointer; }
+  .danger-btn { background: none; border: none; color: var(--expense); font-size: 14px; cursor: pointer; }
+
+  .loading-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .auth-screen { min-height: 100vh; display: none; align-items: center; justify-content: center; padding: 24px; }
+  .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px 24px; width: 100%; max-width: 380px; text-align: center; }
+  .auth-logo { font-size: 40px; margin-bottom: 6px; }
+  .auth-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin-bottom: 18px; }
+  .auth-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+  .auth-form { display: flex; flex-direction: column; gap: 12px; text-align: left; }
+  .auth-message { margin-top: 14px; font-size: 13px; color: var(--expense); min-height: 18px; }
+  .auth-message.success { color: var(--income); }

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="th" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="color-scheme" content="light">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>สมุดบัญชีของฉัน</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Trirong:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+
+<div id="loadingScreen" class="loading-screen"><div class="empty-note">กำลังโหลด...</div></div>
+
+<div id="authScreen" class="auth-screen">
+  <div class="auth-card">
+    <div class="auth-logo">📔</div>
+    <div class="auth-title">สมุดบัญชีของฉัน</div>
+
+    <div class="auth-tabs" id="authTabs">
+      <button type="button" class="type-btn active" data-action="auth-tab" data-authtab="login">เข้าสู่ระบบ</button>
+      <button type="button" class="type-btn" data-action="auth-tab" data-authtab="signup">สมัครสมาชิก</button>
+    </div>
+
+    <form id="loginForm" class="auth-form">
+      <label class="field"><span>อีเมล</span><input type="email" name="email" required autocomplete="email"></label>
+      <label class="field"><span>รหัสผ่าน</span><input type="password" name="password" required autocomplete="current-password"></label>
+      <button type="submit" class="primary-btn full-btn">เข้าสู่ระบบ</button>
+      <button type="button" class="link-btn" data-action="auth-tab" data-authtab="reset">ลืมรหัสผ่าน?</button>
+    </form>
+
+    <form id="signupForm" class="auth-form" style="display:none">
+      <label class="field"><span>อีเมล</span><input type="email" name="email" required autocomplete="email"></label>
+      <label class="field"><span>รหัสผ่าน (อย่างน้อย 6 ตัวอักษร)</span><input type="password" name="password" required minlength="6" autocomplete="new-password"></label>
+      <button type="submit" class="primary-btn full-btn">สร้างบัญชี</button>
+    </form>
+
+    <form id="resetForm" class="auth-form" style="display:none">
+      <label class="field"><span>อีเมล</span><input type="email" name="email" required autocomplete="email"></label>
+      <button type="submit" class="primary-btn full-btn">ส่งลิงก์ตั้งรหัสผ่านใหม่</button>
+      <button type="button" class="link-btn" data-action="auth-tab" data-authtab="login">กลับไปเข้าสู่ระบบ</button>
+    </form>
+
+    <div class="auth-message" id="authMessage"></div>
+  </div>
+</div>
+
+<div id="appShell" style="display:none">
+<div class="app">
+  <header class="topbar">
+    <span class="topbar-icon">📔</span>
+    <div>
+      <div class="topbar-name">สมุดบัญชีของฉัน</div>
+      <div class="sync-status" id="syncStatus">กำลังเชื่อมต่อ...</div>
+    </div>
+  </header>
+
+  <main class="tab-content" id="tabContent"></main>
+
+  <div class="fab-wrap" id="fabWrap">
+    <button class="fab" id="fabBtn" aria-label="เพิ่มรายการ">+</button>
+  </div>
+
+  <nav class="tabbar-wrap">
+    <div class="tabbar">
+      <button class="tab-btn active" data-action="go-tab" data-tab="dashboard">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="3" width="8" height="8" rx="1.5"/><rect x="13" y="3" width="8" height="5" rx="1.5"/><rect x="13" y="11" width="8" height="10" rx="1.5"/><rect x="3" y="14" width="8" height="7" rx="1.5"/></svg>
+        <span>ภาพรวม</span>
+      </button>
+      <button class="tab-btn" data-action="go-tab" data-tab="transactions">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 6h16M4 12h16M4 18h10"/></svg>
+        <span>รายการ</span>
+      </button>
+      <button class="tab-btn" data-action="go-tab" data-tab="investments">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M4 18l5-6 4 3 7-9"/><path d="M14 6h6v6"/></svg>
+        <span>ลงทุน</span>
+      </button>
+      <button class="tab-btn" data-action="go-tab" data-tab="debts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><rect x="3" y="6" width="18" height="12" rx="2"/><circle cx="12" cy="12" r="2.5"/><path d="M6 12h.01M18 12h.01"/></svg>
+        <span>หนี้</span>
+      </button>
+      <button class="tab-btn" data-action="go-tab" data-tab="settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><circle cx="12" cy="12" r="3"/><path d="M19 12a7 7 0 0 0-.1-1.2l2-1.6-2-3.4-2.3.9a7 7 0 0 0-2-1.2L14 3h-4l-.6 2.5a7 7 0 0 0-2 1.2l-2.3-.9-2 3.4 2 1.6A7 7 0 0 0 5 12c0 .4 0 .8.1 1.2l-2 1.6 2 3.4 2.3-.9c.6.5 1.3.9 2 1.2L10 21h4l.6-2.5c.7-.3 1.4-.7 2-1.2l2.3.9 2-3.4-2-1.6c.1-.4.1-.8.1-1.2Z"/></svg>
+        <span>ตั้งค่า</span>
+      </button>
+    </div>
+  </nav>
+</div>
+</div>
+
+<div class="modal-overlay" id="modalOverlay">
+  <div class="modal" id="modalContent"></div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>
