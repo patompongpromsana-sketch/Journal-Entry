@@ -32,6 +32,7 @@
   var modalOverlayEl = document.getElementById('modalOverlay');
   var modalContentEl = document.getElementById('modalContent');
   var fabWrapEl = document.getElementById('fabWrap');
+  var sideFabBtnEl = document.getElementById('sideFabBtn');
 
   // ---------- helpers ----------
   function escapeHtml(str) {
@@ -76,10 +77,43 @@
   function accountBalance(accId) {
     var bal = 0;
     Object.values(state.transactions).forEach(function(t){
+      if (t.type === 'transfer') {
+        if (t.fromAccountId === accId) bal -= Number(t.amount);
+        if (t.toAccountId === accId) bal += Number(t.amount);
+        return;
+      }
       if (t.accountId !== accId) return;
       bal += t.type === 'income' ? Number(t.amount) : -Number(t.amount);
     });
     return bal;
+  }
+  // บัญชีที่เป็นบัตรเครดิต: ยอดติดลบ = หนี้ที่ค้างอยู่ (คำนวณสดจาก transactions ไม่มีข้อมูลซ้ำ)
+  function creditAccounts() {
+    return Object.values(state.accounts).filter(function(a){ return a.type === 'credit'; });
+  }
+  function creditDebtRemaining(acc) {
+    return Math.max(0, -accountBalance(acc.id));
+  }
+  function totalCreditDebtRemaining() {
+    return creditAccounts().reduce(function(s,a){ return s + creditDebtRemaining(a); }, 0);
+  }
+  function lastTxDateForAccount(accId) {
+    var latest = null;
+    Object.values(state.transactions).forEach(function(t){
+      var involved = t.type === 'transfer' ? (t.fromAccountId === accId || t.toAccountId === accId) : t.accountId === accId;
+      if (!involved) return;
+      if (!latest || (t.date || '') > latest) latest = t.date;
+    });
+    return latest;
+  }
+  function fmtRelativeDate(iso) {
+    if (!iso) return 'ยังไม่มีรายการ';
+    var today = todayISO();
+    if (iso === today) return 'วันนี้';
+    var diffDays = Math.round((new Date(today) - new Date(iso)) / 86400000);
+    if (diffDays === 1) return 'เมื่อวาน';
+    if (diffDays > 1 && diffDays < 30) return diffDays + ' วันก่อน';
+    return fmtDateShort(iso);
   }
   function totalCash() {
     return Object.keys(state.accounts).reduce(function(sum,id){ return sum + accountBalance(id); }, 0);
@@ -190,7 +224,8 @@
   }
 
   function updateSyncStatus() {
-    syncStatusEl.textContent = currentUserEmail ? ('ซิงค์แล้ว · ' + currentUserEmail) : 'ยังไม่ได้เข้าสู่ระบบ';
+    var syncText = currentUserEmail ? ('ซิงค์แล้ว · ' + currentUserEmail) : 'ยังไม่ได้เข้าสู่ระบบ';
+    document.querySelectorAll('.sync-status').forEach(function(el){ el.textContent = syncText; });
   }
 
   function onDataChange() {
@@ -244,10 +279,12 @@
       b.classList.toggle('active', b.dataset.tab === tab);
     });
     fabWrapEl.classList.toggle('hidden', tab === 'settings');
+    if (sideFabBtnEl) sideFabBtnEl.classList.toggle('hidden', tab === 'settings');
     renderTab();
   }
 
   function renderTab() {
+    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'investments' || currentTab === 'debts');
     if (!allReady()) {
       tabContentEl.innerHTML = '<div class="card"><div class="empty-note">กำลังโหลดข้อมูล...</div></div>';
       return;
@@ -260,6 +297,23 @@
   }
 
   function txRow(t) {
+    if (t.type === 'transfer') {
+      var fromAcc = state.accounts[t.fromAccountId];
+      var toAcc = state.accounts[t.toAccountId];
+      var tSub = [(fromAcc ? escapeHtml(fromAcc.name) : '?') + ' → ' + (toAcc ? escapeHtml(toAcc.name) : '?')];
+      if (t.note) tSub.push(escapeHtml(t.note));
+      return '' +
+        '<div class="tx-row" data-action="edit-tx" data-id="' + t.id + '">' +
+          '<div class="tx-main">' +
+            '<div class="tx-cat">⇄ โอนเงิน</div>' +
+            '<div class="tx-sub">' + tSub.join(' · ') + '</div>' +
+          '</div>' +
+          '<div class="tx-side">' +
+            '<div class="tx-amt transfer-text">' + fmtMoney(Number(t.amount)) + '</div>' +
+            '<div class="tx-date">' + fmtDateShort(t.date) + '</div>' +
+          '</div>' +
+        '</div>';
+    }
     var cat = state.categories[t.categoryId];
     var acc = state.accounts[t.accountId];
     var sign = t.type === 'income' ? '+' : '-';
@@ -323,7 +377,7 @@
 
     html += renderDebtSummaryCard();
 
-    html += '<div class="card">' +
+    html += '<div class="card recent-list">' +
       '<div class="card-title-row"><div class="card-title">รายการล่าสุด</div>' +
       '<button class="link-btn" data-action="go-tab" data-tab="transactions">ดูทั้งหมด</button></div>' +
       (recent.length ? recent.map(txRow).join('') : '<div class="empty-note">ยังไม่มีรายการ</div>') +
@@ -334,8 +388,9 @@
 
   function renderDebtSummaryCard() {
     var debts = Object.values(state.debts);
-    if (!debts.length) return '';
-    var totalRemaining = totalDebtRemaining();
+    var creditAccs = creditAccounts().filter(function(a){ return creditDebtRemaining(a) > 0; });
+    if (!debts.length && !creditAccs.length) return '';
+    var totalRemaining = totalDebtRemaining() + totalCreditDebtRemaining();
     var rows = debts.map(function(d){
       var paid = debtPaidPrincipal(d.id);
       var pct = Number(d.principal) > 0 ? Math.min(100, paid / Number(d.principal) * 100) : 0;
@@ -345,10 +400,17 @@
         '<div class="debt-mini-val">' + fmtMoney(debtRemaining(d)) + '</div>' +
       '</div>';
     }).join('');
+    var creditRows = creditAccs.map(function(a){
+      return '<div class="debt-mini-row">' +
+        '<div class="debt-mini-name">💳 ' + escapeHtml(a.name) + '</div>' +
+        '<div class="progress-track"></div>' +
+        '<div class="debt-mini-val">' + fmtMoney(creditDebtRemaining(a)) + '</div>' +
+      '</div>';
+    }).join('');
     return '<div class="card">' +
       '<div class="card-title-row"><div class="card-title">หนี้</div>' +
       '<div class="expense-text small-bold">-' + fmtMoney(totalRemaining) + '</div></div>' +
-      rows +
+      rows + creditRows +
     '</div>';
   }
 
@@ -498,7 +560,10 @@
     var monthLabel = new Date(txFilter.month + '-01').toLocaleDateString('th-TH', {month:'long', year:'numeric'});
     var list = transactionsForMonth(txFilter.month);
     if (txFilter.type !== 'all') list = list.filter(function(t){ return t.type === txFilter.type; });
-    if (txFilter.accountId !== 'all') list = list.filter(function(t){ return t.accountId === txFilter.accountId; });
+    if (txFilter.accountId !== 'all') list = list.filter(function(t){
+      if (t.type === 'transfer') return t.fromAccountId === txFilter.accountId || t.toAccountId === txFilter.accountId;
+      return t.accountId === txFilter.accountId;
+    });
     list.sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); });
 
     var income = list.filter(function(t){ return t.type==='income'; }).reduce(function(s,t){ return s+Number(t.amount); },0);
@@ -523,11 +588,13 @@
         '<option value="all"' + (txFilter.type==='all'?' selected':'') + '>ทุกประเภท</option>' +
         '<option value="income"' + (txFilter.type==='income'?' selected':'') + '>รายรับ</option>' +
         '<option value="expense"' + (txFilter.type==='expense'?' selected':'') + '>รายจ่าย</option>' +
+        '<option value="transfer"' + (txFilter.type==='transfer'?' selected':'') + '>โอนเงิน</option>' +
       '</select>' +
       '<select class="select-sm" data-action="filter-account">' +
         '<option value="all"' + (txFilter.accountId==='all'?' selected':'') + '>ทุกบัญชี</option>' + accOptions +
       '</select>' +
     '</div>';
+    html += '<div class="card-title-row list-header"><span></span><button class="link-btn" data-action="add-transfer">⇄ โอนเงินระหว่างบัญชี</button></div>';
     html += '<div class="card list-card">' + (list.length ? list.map(txRow).join('') : '<div class="empty-note">ไม่มีรายการในเดือนนี้</div>') + '</div>';
     return html;
   }
@@ -586,11 +653,29 @@
     var pct = Number(d.principal) > 0 ? Math.min(100, paid / Number(d.principal) * 100) : 0;
     return '<div class="card debt-card" data-action="view-debt" data-id="' + d.id + '">' +
       '<div class="debt-card-top">' +
-        '<div class="debt-name">' + escapeHtml(d.name) + '</div>' +
+        '<div class="debt-name-wrap">' +
+          '<div class="debt-icon home">🏠</div>' +
+          '<div class="debt-name-col"><div class="debt-name">' + escapeHtml(d.name) + '</div><div class="debt-kind">หนี้ระยะยาว · ผ่อนตามงวด</div></div>' +
+        '</div>' +
         '<div class="debt-remaining">' + fmtMoney(remaining) + '<span class="debt-remaining-label">คงเหลือ</span></div>' +
       '</div>' +
       '<div class="progress-track"><div class="progress-fill" style="width:' + pct.toFixed(0) + '%"></div></div>' +
       '<div class="debt-meta"><span>ยอดกู้ ' + fmtMoney(d.principal) + '</span><span>ผ่อนแล้ว ' + pct.toFixed(0) + '%</span></div>' +
+    '</div>';
+  }
+
+  function creditDebtCard(acc) {
+    var remaining = creditDebtRemaining(acc);
+    var last = lastTxDateForAccount(acc.id);
+    return '<div class="card debt-card" data-action="view-debt" data-id="credit:' + acc.id + '">' +
+      '<div class="debt-card-top">' +
+        '<div class="debt-name-wrap">' +
+          '<div class="debt-icon credit">💳</div>' +
+          '<div class="debt-name-col"><div class="debt-name">' + escapeHtml(acc.name) + '</div><div class="debt-kind">บัตรเครดิต · หมุนเวียน</div></div>' +
+        '</div>' +
+        '<div class="debt-remaining">' + fmtMoney(remaining) + '<span class="debt-remaining-label">คงเหลือ</span></div>' +
+      '</div>' +
+      '<div class="credit-foot"><span class="live-tag"><span class="live-dot"></span>คำนวณสดจากยอดบัญชี</span><span>รายการล่าสุด ' + fmtRelativeDate(last) + '</span></div>' +
     '</div>';
   }
 
@@ -607,16 +692,57 @@
 
   function renderDebtList() {
     var debts = Object.values(state.debts);
+    var creditAccs = creditAccounts();
     var html = '<div class="card-title-row list-header"><div class="card-title">หนี้ของฉัน</div>' +
       '<button class="link-btn" data-action="add-debt">+ เพิ่มหนี้</button></div>';
-    if (!debts.length) {
+    if (!debts.length && !creditAccs.length) {
       html += '<div class="card">' +
         '<div class="empty-note">ยังไม่มีข้อมูลหนี้ แตะ "+ เพิ่มหนี้" เพื่อเริ่มบันทึกเอง</div>' +
         '<button class="secondary-btn full-btn" data-action="import-house-loan">นำเข้าข้อมูลผ่อนบ้านจากไฟล์ที่แนบไว้</button>' +
       '</div>';
       return html;
     }
+    var totalHouse = totalDebtRemaining();
+    var totalCredit = totalCreditDebtRemaining();
+    var grandTotal = totalHouse + totalCredit;
+    if (grandTotal > 0) {
+      html += '<div class="card hero-card debt-hero">' +
+        '<div class="hero-label">หนี้คงเหลือทั้งหมด</div>' +
+        '<div class="hero-value">' + fmtMoney(grandTotal) + '</div>' +
+        '<div class="hero-split">' +
+          (totalHouse ? '<div><span class="dot dot-home"></span>หนี้ระยะยาว ' + fmtMoney(totalHouse) + '</div>' : '') +
+          (totalCredit ? '<div><span class="dot dot-credit"></span>บัตรเครดิต ' + fmtMoney(totalCredit) + '</div>' : '') +
+        '</div></div>';
+    }
     html += debts.map(debtCard).join('');
+    html += creditAccs.map(creditDebtCard).join('');
+    return html;
+  }
+
+  function renderCreditDebtDetail(acc) {
+    var remaining = creditDebtRemaining(acc);
+    var txs = Object.values(state.transactions).filter(function(t){
+      return t.type === 'transfer' ? (t.fromAccountId === acc.id || t.toAccountId === acc.id) : t.accountId === acc.id;
+    }).sort(function(a,b){ return (b.date||'').localeCompare(a.date||''); }).slice(0, 30);
+
+    var html = '';
+    html += '<div class="detail-nav"><button class="link-btn" data-action="back-to-debts">‹ หนี้ทั้งหมด</button>' +
+      '<button class="icon-btn" data-action="edit-account" data-id="' + acc.id + '">✎</button></div>';
+
+    html += '<div class="card hero-card debt-hero">' +
+      '<div class="hero-label">' + escapeHtml(acc.name) + ' · คงเหลือ</div>' +
+      '<div class="hero-value">' + fmtMoney(remaining) + '</div>' +
+      '<div class="hero-split"><span class="live-tag"><span class="live-dot"></span>คำนวณสดจากยอดบัญชี ไม่ต้องบันทึกแยก</span></div>' +
+    '</div>';
+
+    html += '<div class="card">' +
+      '<div class="card-title">จ่ายบิลบัตรนี้</div>' +
+      '<div class="tax-note">กดปุ่ม "⇄ โอนเงินระหว่างบัญชี" ในแท็บ "รายการ" เพื่อโอนจากบัญชีธนาคารมาลดยอดบัตรใบนี้ — ยอดคงเหลือด้านบนจะปรับตามทันที ไม่ต้องบันทึกเป็นรายจ่ายซ้ำ</div>' +
+    '</div>';
+
+    html += '<div class="card-title-row list-header"><div class="card-title">รายการล่าสุดในบัญชีนี้</div></div>';
+    html += '<div class="card list-card">' + (txs.length ? txs.map(txRow).join('') : '<div class="empty-note">ยังไม่มีรายการ</div>') + '</div>';
+
     return html;
   }
 
@@ -658,6 +784,11 @@
   }
 
   function renderDebts() {
+    if (typeof selectedDebtId === 'string' && selectedDebtId.indexOf('credit:') === 0) {
+      var creditAcc = state.accounts[selectedDebtId.slice(7)];
+      if (creditAcc) return renderCreditDebtDetail(creditAcc);
+      selectedDebtId = null;
+    }
     if (selectedDebtId && state.debts[selectedDebtId]) return renderDebtDetail(state.debts[selectedDebtId]);
     selectedDebtId = null;
     return renderDebtList();
@@ -896,6 +1027,31 @@
       '</form>';
   }
 
+  function transferModal(existing) {
+    existing = existing || {};
+    var isEdit = !!existing.id;
+    var accs = Object.values(state.accounts);
+    return '' +
+      '<form id="transferForm" class="modal-form">' +
+        '<div class="modal-header"><div class="modal-title">' + (isEdit?'แก้ไขการโอนเงิน':'โอนเงินระหว่างบัญชี') + '</div>' +
+        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
+        (isEdit ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
+        '<label class="field"><span>จำนวนเงิน</span><input type="number" step="0.01" min="0" name="amount" required value="' + (existing.amount!=null?existing.amount:'') + '" placeholder="0.00"></label>' +
+        '<label class="field"><span>จากบัญชี</span><select name="fromAccountId" required>' +
+          accs.map(function(a){ return '<option value="' + a.id + '"' + (existing.fromAccountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>'; }).join('') +
+        '</select></label>' +
+        '<label class="field"><span>ไปบัญชี (เช่น บัตรเครดิตที่จะจ่ายบิล)</span><select name="toAccountId" required>' +
+          accs.map(function(a){ return '<option value="' + a.id + '"' + (existing.toAccountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>'; }).join('') +
+        '</select></label>' +
+        '<label class="field"><span>วันที่</span><input type="date" name="date" required value="' + (existing.date?existing.date.slice(0,10):todayISO()) + '"></label>' +
+        '<label class="field"><span>โน้ต (ไม่บังคับ)</span><input type="text" name="note" value="' + escapeHtml(existing.note||'') + '" placeholder="เช่น จ่ายบิลบัตรเครดิต"></label>' +
+        '<div class="modal-actions">' +
+          (isEdit ? '<button type="button" class="danger-btn" data-action="delete-tx" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
+          '<button type="submit" class="primary-btn">บันทึก</button>' +
+        '</div>' +
+      '</form>';
+  }
+
   function debtModal(existing) {
     existing = existing || null;
     return '' +
@@ -983,6 +1139,11 @@
   // ---------- form handlers ----------
   function saveTransaction(fd) {
     var data = { type: fd.type, amount: Number(fd.amount), accountId: fd.accountId, categoryId: fd.categoryId, date: fd.date, note: fd.note || '' };
+    return fd.id ? Store.update('transactions', fd.id, data) : Store.add('transactions', data);
+  }
+  function saveTransfer(fd) {
+    if (fd.fromAccountId === fd.toAccountId) return Promise.reject(new Error('บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน'));
+    var data = { type: 'transfer', amount: Number(fd.amount), fromAccountId: fd.fromAccountId, toAccountId: fd.toAccountId, date: fd.date, note: fd.note || '' };
     return fd.id ? Store.update('transactions', fd.id, data) : Store.add('transactions', data);
   }
   function saveAccount(fd) {
@@ -1113,6 +1274,12 @@
   function exportCsv() {
     var rows = [['วันที่','ประเภท','บัญชี','หมวดหมู่','จำนวนเงิน','โน้ต']];
     Object.values(state.transactions).sort(function(a,b){ return (a.date||'').localeCompare(b.date||''); }).forEach(function(t){
+      if (t.type === 'transfer') {
+        var fromName = (state.accounts[t.fromAccountId]&&state.accounts[t.fromAccountId].name)||'';
+        var toName = (state.accounts[t.toAccountId]&&state.accounts[t.toAccountId].name)||'';
+        rows.push([ t.date, 'โอนเงิน', fromName + ' → ' + toName, '', t.amount, t.note||'' ]);
+        return;
+      }
       rows.push([ t.date, t.type==='income'?'รายรับ':'รายจ่าย',
         (state.accounts[t.accountId]&&state.accounts[t.accountId].name)||'',
         (state.categories[t.categoryId]&&state.categories[t.categoryId].name)||'',
@@ -1144,9 +1311,14 @@
       case 'add-category': openModal(categoryModal(null, el.dataset.cattype)); break;
       case 'edit-category': openModal(categoryModal(state.categories[id])); break;
       case 'delete-category': confirmDeleteCategory(id); break;
-      case 'edit-tx': openModal(transactionModal(state.transactions[id])); break;
+      case 'edit-tx':
+        var txItem = state.transactions[id];
+        if (txItem && txItem.type === 'transfer') openModal(transferModal(txItem));
+        else openModal(transactionModal(txItem));
+        break;
       case 'delete-tx': confirmDeleteTx(id); break;
       case 'tx-type': handleTxTypeSwitch(el.dataset.type); break;
+      case 'add-transfer': openModal(transferModal(null)); break;
       case 'add-holding': openModal(holdingModal(null)); break;
       case 'edit-holding': openModal(holdingModal(state.holdings[id])); break;
       case 'delete-holding': confirmDeleteHolding(id); break;
@@ -1176,6 +1348,7 @@
   });
 
   document.getElementById('fabBtn').addEventListener('click', handleFabAdd);
+  if (sideFabBtnEl) sideFabBtnEl.addEventListener('click', handleFabAdd);
 
   document.addEventListener('change', function(e){
     var el = e.target;
@@ -1190,6 +1363,7 @@
     var fd = Object.fromEntries(new FormData(form).entries());
     var action;
     if (form.id === 'txForm') action = saveTransaction(fd);
+    else if (form.id === 'transferForm') action = saveTransfer(fd);
     else if (form.id === 'accountForm') action = saveAccount(fd);
     else if (form.id === 'categoryForm') action = saveCategory(fd);
     else if (form.id === 'holdingForm') action = saveHolding(fd);

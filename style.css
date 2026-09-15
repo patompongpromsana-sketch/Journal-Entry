@@ -18,6 +18,9 @@
     --expense-bg: #EEDED3;
     --invest: #C98C4A;
     --invest-bg: #F1E2D0;
+    --credit: #8F6B7A;
+    --credit-bg: #EFE1E6;
+    --transfer: #6E8299;
     --font-th: 'Sarabun', 'Noto Sans Thai', sans-serif;
     --font-display: 'Trirong', 'Sarabun', serif;
   }
@@ -39,6 +42,9 @@
       --expense-bg: #4D3B2D;
       --invest: #E0AD68;
       --invest-bg: #4F412A;
+      --credit: #C4A0B0;
+      --credit-bg: #4A3A41;
+      --transfer: #9DB2C4;
     }
   }
   :root[data-theme="dark"] {
@@ -47,6 +53,7 @@
     --brand: #A9B98F; --brand-deep: #C7D4AE;
     --income: #A9C29A; --income-bg: #434635; --expense: #D98F72; --expense-bg: #4D3B2D;
     --invest: #E0AD68; --invest-bg: #4F412A;
+    --credit: #C4A0B0; --credit-bg: #4A3A41; --transfer: #9DB2C4;
   }
   * { box-sizing: border-box; }
   html, body { background: var(--bg); }
@@ -60,7 +67,7 @@
 
   .app { max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: 92px; position: relative; }
   .topbar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 18px 16px 6px; display: flex; align-items: center; gap: 10px; }
-  .topbar-icon { font-size: 26px; line-height: 1; }
+  .topbar-icon { width: 32px; height: 32px; border-radius: 9px; display: block; flex-shrink: 0; }
   .topbar-name { font-size: 17px; font-weight: 600; font-family: var(--font-display); }
   .sync-status { font-size: 12px; color: var(--muted); margin-top: 1px; }
 
@@ -134,12 +141,25 @@
 
   .debt-card { display: flex; flex-direction: column; gap: 10px; cursor: pointer; }
   .debt-card-top { display: flex; justify-content: space-between; align-items: flex-start; gap: 10px; }
-  .debt-name { font-weight: 600; font-size: 15px; font-family: var(--font-display); }
-  .debt-remaining { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; }
+  .debt-name-wrap { display: flex; align-items: center; gap: 8px; min-width: 0; }
+  .debt-icon { width: 30px; height: 30px; border-radius: 9px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .debt-icon.home { background: var(--expense-bg); }
+  .debt-icon.credit { background: var(--credit-bg); }
+  .debt-name-col { display: flex; flex-direction: column; min-width: 0; }
+  .debt-name { font-weight: 600; font-size: 15px; font-family: var(--font-display); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .debt-kind { font-size: 11px; color: var(--muted); margin-top: 1px; }
+  .debt-remaining { font-weight: 600; font-variant-numeric: tabular-nums; text-align: right; flex-shrink: 0; }
   .debt-remaining-label { font-size: 11px; color: var(--muted); font-weight: 400; display: block; }
   .progress-track { background: var(--surface-2); border-radius: 6px; height: 8px; overflow: hidden; }
   .progress-fill { background: var(--expense); height: 100%; border-radius: 6px; }
   .debt-meta { display: flex; justify-content: space-between; font-size: 12px; color: var(--ink-soft); }
+  .debt-hero .hero-value { color: var(--expense); }
+  .dot-home { background: var(--expense); }
+  .dot-credit { background: var(--credit); }
+  .live-tag { font-size: 10px; background: var(--credit-bg); color: var(--credit); padding: 2px 7px; border-radius: 20px; font-weight: 500; display: inline-flex; align-items: center; gap: 4px; }
+  .live-dot { width: 5px; height: 5px; border-radius: 50%; background: var(--credit); flex-shrink: 0; }
+  .credit-foot { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 11.5px; color: var(--ink-soft); }
+  .transfer-text { color: var(--transfer); }
   .detail-nav { display: flex; justify-content: space-between; align-items: center; padding: 2px 2px; }
   .year-table { margin-top: 8px; }
   .year-row { display: grid; grid-template-columns: 50px 1fr 1fr 1fr; gap: 6px; padding: 9px 0; border-bottom: 1px solid var(--border); font-size: 13px; text-align: right; font-variant-numeric: tabular-nums; }
@@ -196,9 +216,54 @@
   .loading-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
   .auth-screen { min-height: 100vh; display: none; align-items: center; justify-content: center; padding: 24px; }
   .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px 24px; width: 100%; max-width: 380px; text-align: center; }
-  .auth-logo { font-size: 40px; margin-bottom: 6px; }
+  .auth-logo { width: 64px; height: 64px; border-radius: 16px; margin: 0 auto 10px; display: block; }
   .auth-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin-bottom: 18px; }
   .auth-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .auth-form { display: flex; flex-direction: column; gap: 12px; text-align: left; }
   .auth-message { margin-top: 14px; font-size: 13px; color: var(--expense); min-height: 18px; }
   .auth-message.success { color: var(--income); }
+
+  /* ---------- desktop sidebar (hidden on mobile, shown at the desktop breakpoint below) ---------- */
+  .sidebar { display: none; flex-direction: column; padding: 20px 14px; gap: 18px; background: var(--surface); border-right: 1px solid var(--border); }
+  .brand-row { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
+  .brand-icon { width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; }
+  .brand-name { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; line-height: 1.25; }
+  .side-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
+  .side-link { display: flex; flex-direction: row; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 10px; width: 100%; text-align: left; font-size: 13.5px; color: var(--ink-soft); font-family: var(--font-th); }
+  .side-link svg { width: 18px; height: 18px; flex-shrink: 0; }
+  .side-link.active { background: var(--income-bg); color: var(--brand-deep); font-weight: 600; }
+  .sidebar-spacer { flex: 1; }
+  .side-add-btn { display: flex; align-items: center; justify-content: center; gap: 8px; background: var(--brand); color: var(--bg); border: none; border-radius: 11px; padding: 11px; font-size: 13.5px; font-weight: 600; cursor: pointer; }
+  .side-add-btn.hidden { display: none; }
+  .side-sync { font-size: 11px; color: var(--muted); padding-top: 12px; border-top: 1px solid var(--border); margin-top: 4px; }
+
+  /* ---------- desktop layout ---------- */
+  @media (min-width: 960px) {
+    .app {
+      display: grid;
+      grid-template-columns: 236px 1fr;
+      grid-template-areas: "side content";
+      max-width: 1240px;
+      padding-bottom: 0;
+      align-items: start;
+    }
+    .sidebar { display: flex; grid-area: side; position: sticky; top: 0; height: 100vh; }
+    .topbar, .fab-wrap, .tabbar-wrap { display: none; }
+    .tab-content { grid-area: content; padding: 28px 36px 44px; }
+    .tab-content:not(.grid-tab) { max-width: 640px; }
+
+    .tab-content.grid-tab {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      align-items: start;
+      gap: 16px;
+    }
+    .tab-content.grid-tab > .hero-card,
+    .tab-content.grid-tab > .grid-2,
+    .tab-content.grid-tab > .recent-list,
+    .tab-content.grid-tab > .list-header,
+    .tab-content.grid-tab > .list-card,
+    .tab-content.grid-tab > .detail-nav {
+      grid-column: 1 / -1;
+    }
+  }
