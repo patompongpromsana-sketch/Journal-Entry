@@ -196,6 +196,12 @@
   .tab-btn.active { color: var(--brand); }
   .tab-btn svg { width: 20px; height: 20px; display: block; }
 
+  .toast-container { position: fixed; top: calc(16px + env(safe-area-inset-top, 0px)); left: 50%; transform: translateX(-50%); width: calc(100% - 32px); max-width: 420px; display: flex; flex-direction: column; gap: 8px; z-index: 40; pointer-events: none; align-items: center; }
+  .toast { pointer-events: auto; max-width: 100%; padding: 12px 16px; border-radius: 12px; font-size: 13px; font-weight: 600; box-shadow: 0 6px 20px rgba(28,24,14,0.18); opacity: 0; transform: translateY(-10px); transition: opacity 0.2s ease, transform 0.2s ease; text-align: center; }
+  .toast.show { opacity: 1; transform: translateY(0); }
+  .toast-success { background: var(--income-bg); color: var(--income); border: 1px solid var(--income); }
+  .toast-error { background: var(--expense-bg); color: var(--expense); border: 1px solid var(--expense); }
+
   .modal-overlay { position: fixed; inset: 0; background: rgba(28,24,14,0.45); display: none; align-items: flex-end; justify-content: center; z-index: 20; }
   .modal-overlay.open { display: flex; }
   .modal { background: var(--surface); width: 100%; max-width: 480px; border-radius: 20px 20px 0 0; padding: 20px; max-height: 88vh; overflow-y: auto; }
@@ -239,17 +245,19 @@
 
   /* ---------- desktop layout ---------- */
   @media (min-width: 960px) {
+    html, body { height: 100%; }
     .app {
       display: grid;
       grid-template-columns: 236px 1fr;
       grid-template-areas: "side content";
       max-width: 1240px;
       padding-bottom: 0;
-      align-items: start;
+      height: 100vh;
+      overflow: hidden;
     }
-    .sidebar { display: flex; grid-area: side; position: sticky; top: 0; height: 100vh; }
+    .sidebar { display: flex; grid-area: side; height: 100%; }
     .topbar, .fab-wrap, .tabbar-wrap { display: none; }
-    .tab-content { grid-area: content; padding: 28px 36px 44px; }
+    .tab-content { grid-area: content; padding: 28px 36px 44px; height: 100%; overflow-y: auto; align-content: start; }
     .tab-content:not(.grid-tab) { max-width: 640px; }
 
     .tab-content.grid-tab {
@@ -263,7 +271,8 @@
     .tab-content.grid-tab > .recent-list,
     .tab-content.grid-tab > .list-header,
     .tab-content.grid-tab > .list-card,
-    .tab-content.grid-tab > .detail-nav {
+    .tab-content.grid-tab > .detail-nav,
+    .tab-content.grid-tab > .wide-card {
       grid-column: 1 / -1;
     }
   }

@@ -4,8 +4,15 @@
 <meta charset="UTF-8">
 <meta name="color-scheme" content="light">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#F3EDE3">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="สมุดบัญชีของฉัน">
 <title>สมุดบัญชีของฉัน</title>
+<link rel="manifest" href="manifest.json">
 <link rel="icon" type="image/svg+xml" href="finance_tracker_logo_icon_only.svg">
+<link rel="alternate icon" href="favicon-32.png">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Trirong:wght@400;500;600;700&family=Sarabun:wght@400;500;600;700&display=swap" rel="stylesheet">
@@ -127,6 +134,8 @@
 <div class="modal-overlay" id="modalOverlay">
   <div class="modal" id="modalContent"></div>
 </div>
+
+<div class="toast-container" id="toastContainer"></div>
 
 <script src="app.js"></script>
 </body>

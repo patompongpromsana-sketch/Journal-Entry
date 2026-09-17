@@ -18,8 +18,8 @@
     {name:'สุขภาพ', type:'expense'}, {name:'บันเทิง', type:'expense'}, {name:'อื่นๆ', type:'expense'}
   ];
 
-  var state = { accounts:{}, categories:{}, transactions:{}, holdings:{}, investmentTxns:{}, debts:{}, debtPayments:{}, budgets:{}, recurringTemplates:{},
-    ready: { accounts:false, categories:false, transactions:false, holdings:false, investmentTxns:false, debts:false, debtPayments:false, budgets:false, recurringTemplates:false } };
+  var state = { accounts:{}, categories:{}, transactions:{}, holdings:{}, investmentTxns:{}, debts:{}, debtPayments:{}, budgets:{}, recurringTemplates:{}, meta:{},
+    ready: { accounts:false, categories:false, transactions:false, holdings:false, investmentTxns:false, debts:false, debtPayments:false, budgets:false, recurringTemplates:false, meta:false } };
   var currentTab = 'dashboard';
   var seedAttempted = false;
   var recurringProcessed = false;
@@ -33,6 +33,20 @@
   var modalContentEl = document.getElementById('modalContent');
   var fabWrapEl = document.getElementById('fabWrap');
   var sideFabBtnEl = document.getElementById('sideFabBtn');
+  var toastContainerEl = document.getElementById('toastContainer');
+
+  function showToast(message, type) {
+    if (!toastContainerEl) return;
+    var el = document.createElement('div');
+    el.className = 'toast ' + (type === 'error' ? 'toast-error' : 'toast-success');
+    el.textContent = message;
+    toastContainerEl.appendChild(el);
+    requestAnimationFrame(function(){ el.classList.add('show'); });
+    setTimeout(function(){
+      el.classList.remove('show');
+      setTimeout(function(){ el.remove(); }, 250);
+    }, 2800);
+  }
 
   // ---------- helpers ----------
   function escapeHtml(str) {
@@ -44,6 +58,13 @@
     n = Number(n) || 0;
     var sign = n < 0 ? '-' : '';
     return sign + '฿' + Math.abs(n).toLocaleString('th-TH', {minimumFractionDigits:2, maximumFractionDigits:2});
+  }
+  // สำหรับตัวเลขเกี่ยวกับการลงทุน (ราคาต่อหน่วย/มูลค่ารวม) — คริปโตหรือสินทรัพย์บางอย่างมีราคาทศนิยมเยอะ
+  // ถ้าบังคับ 2 ตำแหน่งแบบ fmtMoney() จะปัดจนข้อมูลหาย เลยให้แสดงได้สูงสุด 8 ตำแหน่ง (ตัดศูนย์ท้ายออก, ขั้นต่ำยังคง 2 ตำแหน่งเหมือนเดิม)
+  function fmtInvMoney(n) {
+    n = Number(n) || 0;
+    var sign = n < 0 ? '-' : '';
+    return sign + '฿' + Math.abs(n).toLocaleString('th-TH', {minimumFractionDigits:2, maximumFractionDigits:8});
   }
   function fmtQty(n) {
     n = Number(n) || 0;
@@ -72,6 +93,12 @@
   function allReady() {
     return Object.keys(state.ready).every(function(k){ return state.ready[k]; });
   }
+  // ตรวจว่าเป็นตัวเลขที่ไม่ติดลบ ก่อนบันทึกลง state — กันไม่ให้ค่าติดลบ/ค่าที่ไม่ใช่ตัวเลขหลุดเข้าไปคำนวณยอดเงิน
+  function requirePositive(v, label) {
+    var n = Number(v);
+    if (!isFinite(n) || n < 0) throw new Error((label || 'จำนวนเงิน') + 'ต้องเป็นตัวเลขที่ไม่ติดลบ');
+    return n;
+  }
 
   // ---------- derived values ----------
   function accountBalance(accId) {
@@ -80,6 +107,12 @@
       if (t.type === 'transfer') {
         if (t.fromAccountId === accId) bal -= Number(t.amount);
         if (t.toAccountId === accId) bal += Number(t.amount);
+        return;
+      }
+      if (t.type === 'investment') {
+        if (t.accountId !== accId) return;
+        // ซื้อ = เงินออกจากบัญชี, ขาย/ปันผล = เงินเข้าบัญชี
+        bal += (t.investAction === 'buy') ? -Number(t.amount) : Number(t.amount);
         return;
       }
       if (t.accountId !== accId) return;
@@ -164,7 +197,7 @@
   var saveTimer = null;
 
   var Store = {
-    collections: ['accounts','categories','transactions','holdings','investmentTxns','debts','debtPayments','budgets','recurringTemplates'],
+    collections: ['accounts','categories','transactions','holdings','investmentTxns','debts','debtPayments','budgets','recurringTemplates','meta'],
     add: function(name, obj) {
       var id = 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
       state[name][id] = Object.assign({id:id}, obj);
@@ -194,11 +227,15 @@
   }
 
   function doSave() {
+    saveTimer = null;
     if (!currentUserId) return;
     var payload = {};
     Store.collections.forEach(function(name){ payload[name] = state[name]; });
     supabaseClient.from('user_data').upsert({ id: currentUserId, data: payload, updated_at: new Date().toISOString() }).then(function(res){
-      if (res.error) console.error('save error', res.error);
+      if (res.error) { console.error('save error', res.error); showToast('ซิงค์ข้อมูลไม่สำเร็จ: ' + res.error.message, 'error'); }
+    }).catch(function(err){
+      console.error('save error', err);
+      showToast('ซิงค์ข้อมูลไม่สำเร็จ: ' + (err && err.message ? err.message : err), 'error');
     });
   }
 
@@ -215,6 +252,9 @@
     if (realtimeChannel) supabaseClient.removeChannel(realtimeChannel);
     realtimeChannel = supabaseClient.channel('user_data_' + userId)
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'user_data', filter: 'id=eq.' + userId }, function(payload){
+        // ถ้าเครื่องนี้เพิ่งแก้ไขข้อมูลแล้วยังไม่ได้ sync รอบใหม่ (saveTimer ค้างอยู่) ห้ามเอาข้อมูลที่เพิ่งมาถึง
+        // (ซึ่งอาจเป็นแค่ echo ของการ save รอบก่อนหน้าของตัวเราเอง) มาทับ state ปัจจุบัน เพราะจะทำให้การแก้ไขล่าสุดหายไปเงียบๆ
+        if (saveTimer) return;
         var newData = payload.new && payload.new.data;
         if (!newData) return;
         Store.collections.forEach(function(name){ state[name] = newData[name] || {}; });
@@ -234,13 +274,21 @@
     renderTab();
   }
 
+  function markSeeded() {
+    state.meta.app = Object.assign({id:'app'}, state.meta.app, {seeded:true});
+    scheduleSave();
+  }
+
   function maybeSeedDefaults() {
     if (seedAttempted) return;
-    if (!state.ready.accounts || !state.ready.categories) return;
+    if (!state.ready.accounts || !state.ready.categories || !state.ready.meta) return;
     seedAttempted = true;
-    if (Object.keys(state.accounts).length > 0 || Object.keys(state.categories).length > 0) return;
+    // เคยสร้างค่าเริ่มต้นให้ไปแล้วครั้งหนึ่ง (แม้ผู้ใช้จะลบบัญชี/หมวดหมู่ทั้งหมดทิ้งภายหลัง) — ไม่สร้างซ้ำอีก
+    if (state.meta.app && state.meta.app.seeded) return;
+    if (Object.keys(state.accounts).length > 0 || Object.keys(state.categories).length > 0) { markSeeded(); return; }
     defaultAccounts.forEach(function(a){ Store.add('accounts', a); });
     defaultCategories.forEach(function(c){ Store.add('categories', c); });
+    markSeeded();
   }
 
   function daysInMonth(y, m0) { return new Date(y, m0 + 1, 0).getDate(); }
@@ -272,14 +320,24 @@
   }
 
   // ---------- rendering ----------
+  function isCreditDebtId(id) {
+    return typeof id === 'string' && id.indexOf('credit:') === 0;
+  }
+
+  function updateFabVisibility() {
+    // บัตรเครดิตคำนวณยอดสดจากบัญชี ไม่มีฟอร์ม "บันทึกการผ่อนชำระ" ให้ใช้ — ซ่อนปุ่ม + ตอนดูรายละเอียดบัตรเครดิต
+    // กันไม่ให้กด + แล้วไปเปิดฟอร์มผ่อนชำระผูกกับ debtId ปลอมที่ไม่มีอยู่จริง (เช่น "credit:xxx")
+    var hide = currentTab === 'settings' || (currentTab === 'debts' && isCreditDebtId(selectedDebtId));
+    fabWrapEl.classList.toggle('hidden', hide);
+    if (sideFabBtnEl) sideFabBtnEl.classList.toggle('hidden', hide);
+  }
+
   function switchTab(tab) {
     currentTab = tab;
     if (tab === 'debts') selectedDebtId = null;
     document.querySelectorAll('.tab-btn').forEach(function(b){
       b.classList.toggle('active', b.dataset.tab === tab);
     });
-    fabWrapEl.classList.toggle('hidden', tab === 'settings');
-    if (sideFabBtnEl) sideFabBtnEl.classList.toggle('hidden', tab === 'settings');
     renderTab();
   }
 
@@ -294,6 +352,8 @@
     else if (currentTab === 'investments') tabContentEl.innerHTML = renderInvestments();
     else if (currentTab === 'debts') tabContentEl.innerHTML = renderDebts();
     else tabContentEl.innerHTML = renderSettings();
+    // renderDebts() อาจรีเซ็ต selectedDebtId เองถ้า id ไม่ถูกต้อง เรียกหลัง render เสมอเพื่อให้ปุ่ม + ตรงกับสถานะจริง
+    updateFabVisibility();
   }
 
   function txRow(t) {
@@ -310,6 +370,27 @@
           '</div>' +
           '<div class="tx-side">' +
             '<div class="tx-amt transfer-text">' + fmtMoney(Number(t.amount)) + '</div>' +
+            '<div class="tx-date">' + fmtDateShort(t.date) + '</div>' +
+          '</div>' +
+        '</div>';
+    }
+    if (t.type === 'investment') {
+      var invAcc = state.accounts[t.accountId];
+      var invHolding = state.holdings[t.holdingId];
+      var actionLabel = t.investAction === 'buy' ? 'ซื้อ' : (t.investAction === 'sell' ? 'ขาย' : 'ปันผล');
+      var invSign = t.investAction === 'buy' ? '-' : '+';
+      var invCls = t.investAction === 'buy' ? 'expense-text' : 'income-text';
+      var invSub = [];
+      if (invAcc) invSub.push(escapeHtml(invAcc.name));
+      if (t.note) invSub.push(escapeHtml(t.note));
+      return '' +
+        '<div class="tx-row" data-action="edit-tx" data-id="' + t.id + '">' +
+          '<div class="tx-main">' +
+            '<div class="tx-cat">📈 ' + actionLabel + (invHolding ? ' ' + escapeHtml(invHolding.symbol) : '') + '</div>' +
+            '<div class="tx-sub">' + invSub.join(' · ') + '</div>' +
+          '</div>' +
+          '<div class="tx-side">' +
+            '<div class="tx-amt ' + invCls + '">' + invSign + fmtInvMoney(Number(t.amount)) + '</div>' +
             '<div class="tx-date">' + fmtDateShort(t.date) + '</div>' +
           '</div>' +
         '</div>';
@@ -355,7 +436,7 @@
       '<div class="hero-value">' + fmtMoney(netWorth) + '</div>' +
       '<div class="hero-split">' +
         '<div><span class="dot dot-cash"></span>เงินสด/บัญชี ' + fmtMoney(cash) + '</div>' +
-        '<div><span class="dot dot-invest"></span>การลงทุน ' + fmtMoney(invValue) + '</div>' +
+        '<div><span class="dot dot-invest"></span>การลงทุน ' + fmtInvMoney(invValue) + '</div>' +
         (Object.keys(state.debts).length ? '<div><span class="dot dot-debt"></span>หนี้คงเหลือ -' + fmtMoney(debtRemainingTotal) + '</div>' : '') +
       '</div></div>';
 
@@ -367,10 +448,10 @@
     html += renderExpenseTrendCard();
     html += renderBudgetCard();
 
-    html += '<div class="card">' +
+    html += '<div class="card wide-card">' +
       '<div class="card-title-row">' +
         '<div class="card-title">การลงทุน</div>' +
-        '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtMoney(gain) + ' (' + gainPct.toFixed(1) + '%)</div>' +
+        '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtInvMoney(gain) + ' (' + gainPct.toFixed(1) + '%)</div>' +
       '</div>' +
       (Object.keys(state.holdings).length ? '' : '<div class="empty-note">ยังไม่มีการลงทุนที่บันทึกไว้</div>') +
     '</div>';
@@ -407,7 +488,7 @@
         '<div class="debt-mini-val">' + fmtMoney(creditDebtRemaining(a)) + '</div>' +
       '</div>';
     }).join('');
-    return '<div class="card">' +
+    return '<div class="card wide-card">' +
       '<div class="card-title-row"><div class="card-title">หนี้</div>' +
       '<div class="expense-text small-bold">-' + fmtMoney(totalRemaining) + '</div></div>' +
       rows + creditRows +
@@ -517,10 +598,10 @@
     }).join('') : '<div class="empty-note">ไม่มีรายจ่ายเดือนนี้</div>';
 
     if (!hasAnyData) {
-      return '<div class="card"><div class="card-title">แนวโน้มรายจ่ายตามหมวด</div><div class="empty-note">ยังไม่มีข้อมูลรายจ่ายให้แสดงแนวโน้ม</div></div>';
+      return '<div class="card wide-card"><div class="card-title">แนวโน้มรายจ่ายตามหมวด</div><div class="empty-note">ยังไม่มีข้อมูลรายจ่ายให้แสดงแนวโน้ม</div></div>';
     }
 
-    return '<div class="card">' +
+    return '<div class="card wide-card">' +
       '<div class="card-title">แนวโน้มรายจ่ายตามหมวด (6 เดือนล่าสุด)</div>' +
       '<div class="trend-chart-wrap">' + svg + '</div>' +
       '<div class="legend-row">' + legend + '</div>' +
@@ -553,7 +634,7 @@
       '</div>';
     }).join('');
 
-    return '<div class="card"><div class="card-title">งบประมาณเดือนนี้</div>' + rowsHtml + '</div>';
+    return '<div class="card wide-card"><div class="card-title">งบประมาณเดือนนี้</div>' + rowsHtml + '</div>';
   }
 
   function renderTransactions() {
@@ -589,6 +670,7 @@
         '<option value="income"' + (txFilter.type==='income'?' selected':'') + '>รายรับ</option>' +
         '<option value="expense"' + (txFilter.type==='expense'?' selected':'') + '>รายจ่าย</option>' +
         '<option value="transfer"' + (txFilter.type==='transfer'?' selected':'') + '>โอนเงิน</option>' +
+        '<option value="investment"' + (txFilter.type==='investment'?' selected':'') + '>ลงทุน</option>' +
       '</select>' +
       '<select class="select-sm" data-action="filter-account">' +
         '<option value="all"' + (txFilter.accountId==='all'?' selected':'') + '>ทุกบัญชี</option>' + accOptions +
@@ -609,13 +691,13 @@
         '<div class="holding-top" data-action="edit-holding" data-id="' + h.id + '">' +
           '<div><div class="holding-name">' + escapeHtml(h.symbol) + '<span class="tag">' + (assetTypeLabels[h.assetType]||'อื่นๆ') + '</span></div>' +
           '<div class="holding-sub">' + escapeHtml(h.name||'') + '</div></div>' +
-          '<div class="holding-value-col"><div class="holding-value">' + fmtMoney(val) + '</div>' +
-          '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtMoney(gain) + ' (' + gainPct.toFixed(1) + '%)</div></div>' +
+          '<div class="holding-value-col"><div class="holding-value">' + fmtInvMoney(val) + '</div>' +
+          '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtInvMoney(gain) + ' (' + gainPct.toFixed(1) + '%)</div></div>' +
         '</div>' +
         '<div class="holding-meta">' +
           '<span>จำนวน ' + fmtQty(h.quantity) + '</span>' +
-          '<span>ต้นทุนเฉลี่ย ' + fmtMoney(h.avgCost) + '</span>' +
-          '<span>ราคาล่าสุด ' + fmtMoney(h.currentPrice) + '</span>' +
+          '<span>ต้นทุนเฉลี่ย ' + fmtInvMoney(h.avgCost) + '</span>' +
+          '<span>ราคาล่าสุด ' + fmtInvMoney(h.currentPrice) + '</span>' +
         '</div>' +
         '<div class="holding-actions">' +
           '<button class="chip-btn" data-action="update-price" data-id="' + h.id + '">อัปเดตราคา</button>' +
@@ -634,12 +716,12 @@
     var html = '';
     html += '<div class="card hero-card invest-hero">' +
       '<div class="hero-label">มูลค่าการลงทุนรวม</div>' +
-      '<div class="hero-value">' + fmtMoney(totalVal) + '</div>' +
-      '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtMoney(gain) + ' (' + (gainPct>=0?'+':'') + gainPct.toFixed(1) + '%) จากต้นทุน ' + fmtMoney(totalCost) + '</div>' +
+      '<div class="hero-value">' + fmtInvMoney(totalVal) + '</div>' +
+      '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtInvMoney(gain) + ' (' + (gainPct>=0?'+':'') + gainPct.toFixed(1) + '%) จากต้นทุน ' + fmtInvMoney(totalCost) + '</div>' +
     '</div>';
     html += '<div class="card-title-row list-header"><div class="card-title">รายการลงทุน</div>' +
       '<button class="link-btn" data-action="add-holding">+ เพิ่มรายการ</button></div>';
-    html += holdings.length ? holdings.map(holdingCard).join('') : '<div class="card"><div class="empty-note">ยังไม่มีการลงทุน แตะ "+ เพิ่มรายการ" เพื่อเริ่มบันทึก</div></div>';
+    html += holdings.length ? holdings.map(holdingCard).join('') : '<div class="card wide-card"><div class="empty-note">ยังไม่มีการลงทุน แตะ "+ เพิ่มรายการ" เพื่อเริ่มบันทึก</div></div>';
     return html;
   }
 
@@ -696,7 +778,7 @@
     var html = '<div class="card-title-row list-header"><div class="card-title">หนี้ของฉัน</div>' +
       '<button class="link-btn" data-action="add-debt">+ เพิ่มหนี้</button></div>';
     if (!debts.length && !creditAccs.length) {
-      html += '<div class="card">' +
+      html += '<div class="card wide-card">' +
         '<div class="empty-note">ยังไม่มีข้อมูลหนี้ แตะ "+ เพิ่มหนี้" เพื่อเริ่มบันทึกเอง</div>' +
         '<button class="secondary-btn full-btn" data-action="import-house-loan">นำเข้าข้อมูลผ่อนบ้านจากไฟล์ที่แนบไว้</button>' +
       '</div>';
@@ -735,7 +817,7 @@
       '<div class="hero-split"><span class="live-tag"><span class="live-dot"></span>คำนวณสดจากยอดบัญชี ไม่ต้องบันทึกแยก</span></div>' +
     '</div>';
 
-    html += '<div class="card">' +
+    html += '<div class="card wide-card">' +
       '<div class="card-title">จ่ายบิลบัตรนี้</div>' +
       '<div class="tax-note">กดปุ่ม "⇄ โอนเงินระหว่างบัญชี" ในแท็บ "รายการ" เพื่อโอนจากบัญชีธนาคารมาลดยอดบัตรใบนี้ — ยอดคงเหลือด้านบนจะปรับตามทันที ไม่ต้องบันทึกเป็นรายจ่ายซ้ำ</div>' +
     '</div>';
@@ -765,7 +847,7 @@
       '<div class="hero-split"><div>ยอดกู้ตั้งต้น ' + fmtMoney(debt.principal) + '</div><div>ผ่อนไปแล้ว ' + pct.toFixed(0) + '% (' + fmtMoney(paidP+paidI) + ')</div></div>' +
     '</div>';
 
-    html += '<div class="card">' +
+    html += '<div class="card wide-card">' +
       '<div class="card-title">สรุปรายปี (สำหรับยื่นภาษี)</div>' +
       '<div class="tax-note">ดอกเบี้ยเงินกู้ยืมเพื่อที่อยู่อาศัยใช้ลดหย่อนภาษีได้ตามเงื่อนไขกรมสรรพากร (ปัจจุบันสูงสุด 100,000 บาท/ปี) ควรตรวจสอบกับหนังสือรับรองดอกเบี้ยจากธนาคารและผู้เชี่ยวชาญด้านภาษีอีกครั้งก่อนยื่นจริง</div>' +
       (years.length ? '<div class="year-table">' +
@@ -900,35 +982,92 @@
     modalContentEl.innerHTML = '';
   }
 
+  // ---------- modal building blocks (refactor: ลดโค้ด HTML ที่ซ้ำกันในทุกฟอร์ม) ----------
+  // ทุกโมดัลด้านล่างประกอบจากฟังก์ชันกลางชุดนี้แทนการต่อ string ซ้ำๆ เอง —
+  // เปลี่ยนโครงสร้าง field/ปุ่ม ให้แก้ที่เดียวตรงนี้แล้วมีผลทุกฟอร์ม
+  function modalHeader(title) {
+    return '<div class="modal-header"><div class="modal-title">' + title + '</div>' +
+      '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>';
+  }
+  function hiddenField(name, value) {
+    return '<input type="hidden" name="' + name + '" value="' + value + '">';
+  }
+  function fieldWrap(label, innerHtml) {
+    return '<label class="field"><span>' + label + '</span>' + innerHtml + '</label>';
+  }
+  function fieldDisplay(label, valueHtml) {
+    return '<label class="field"><span>' + label + '</span><div>' + valueHtml + '</div></label>';
+  }
+  function numberField(label, name, opts) {
+    opts = opts || {};
+    var val = opts.value != null ? opts.value : '';
+    var required = opts.required !== false;
+    return fieldWrap(label, '<input type="number" step="any" min="0" name="' + name + '"' + (required ? ' required' : '') +
+      ' value="' + val + '" placeholder="' + (opts.placeholder != null ? opts.placeholder : '0.00') + '">');
+  }
+  function textField(label, name, opts) {
+    opts = opts || {};
+    return fieldWrap(label, '<input type="text" name="' + name + '"' + (opts.required ? ' required' : '') +
+      ' value="' + escapeHtml(opts.value || '') + '" placeholder="' + (opts.placeholder || '') + '">');
+  }
+  function dateField(label, name, value, required) {
+    return fieldWrap(label, '<input type="date" name="' + name + '"' + (required !== false ? ' required' : '') +
+      ' value="' + (value || '') + '">');
+  }
+  function selectField(label, name, optionsHtml, required) {
+    return fieldWrap(label, '<select name="' + name + '"' + (required !== false ? ' required' : '') + '>' + optionsHtml + '</select>');
+  }
+  function optionsFromList(list, selectedId, labelFn) {
+    return list.map(function(item){
+      return '<option value="' + item.id + '"' + (selectedId === item.id ? ' selected' : '') + '>' + escapeHtml(labelFn(item)) + '</option>';
+    }).join('');
+  }
+  function accountOptions(selectedId) {
+    return optionsFromList(Object.values(state.accounts), selectedId, function(a){ return a.name; });
+  }
+  function categoryOptionsByType(type, selectedId) {
+    var cats = Object.values(state.categories).filter(function(c){ return c.type === type; });
+    return optionsFromList(cats, selectedId, function(c){ return c.name; });
+  }
+  function labelOptions(labelMap, selectedKey) {
+    return Object.keys(labelMap).map(function(k){
+      return '<option value="' + k + '"' + (selectedKey === k ? ' selected' : '') + '>' + labelMap[k] + '</option>';
+    }).join('');
+  }
+  function typeToggle(dataAction, options, current) {
+    return '<div class="type-toggle">' + options.map(function(o){
+      var active = o.type === current;
+      return '<button type="button" class="type-btn' + (active ? ' active' + (o.activeClass ? ' ' + o.activeClass : '') : '') +
+        '" data-action="' + dataAction + '" data-type="' + o.type + '">' + o.label + '</button>';
+    }).join('') + '</div>';
+  }
+  function deleteBtn(action, id, label) {
+    return '<button type="button" class="danger-btn" data-action="' + action + '" data-id="' + id + '">' + (label || 'ลบ') + '</button>';
+  }
+  function modalActions(deleteBtnHtml) {
+    return '<div class="modal-actions">' + (deleteBtnHtml || '<span></span>') + '<button type="submit" class="primary-btn">บันทึก</button></div>';
+  }
+  var incomeExpenseToggle = [
+    { type: 'expense', label: 'รายจ่าย', activeClass: 'expense' },
+    { type: 'income', label: 'รายรับ', activeClass: 'income' }
+  ];
+
   function transactionModal(existing) {
     existing = existing || {};
     var isEdit = !!existing.id;
     var type = existing.type || 'expense';
-    var cats = Object.values(state.categories).filter(function(c){ return c.type===type; });
-    var accs = Object.values(state.accounts);
     return '' +
       '<form id="txForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (isEdit?'แก้ไขรายการ':'เพิ่มรายรับ-รายจ่าย') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        '<div class="type-toggle">' +
-          '<button type="button" class="type-btn' + (type==='expense'?' active expense':'') + '" data-action="tx-type" data-type="expense">รายจ่าย</button>' +
-          '<button type="button" class="type-btn' + (type==='income'?' active income':'') + '" data-action="tx-type" data-type="income">รายรับ</button>' +
-        '</div>' +
-        '<input type="hidden" name="type" value="' + type + '">' +
-        (isEdit ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>จำนวนเงิน</span><input type="number" step="0.01" min="0" name="amount" required value="' + (existing.amount!=null?existing.amount:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>บัญชี</span><select name="accountId" required>' +
-          accs.map(function(a){ return '<option value="' + a.id + '"' + (existing.accountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>หมวดหมู่</span><select name="categoryId" required>' +
-          cats.map(function(c){ return '<option value="' + c.id + '"' + (existing.categoryId===c.id?' selected':'') + '>' + escapeHtml(c.name) + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>วันที่</span><input type="date" name="date" required value="' + (existing.date?existing.date.slice(0,10):todayISO()) + '"></label>' +
-        '<label class="field"><span>โน้ต (ไม่บังคับ)</span><input type="text" name="note" value="' + escapeHtml(existing.note||'') + '" placeholder="รายละเอียดเพิ่มเติม"></label>' +
-        '<div class="modal-actions">' +
-          (isEdit ? '<button type="button" class="danger-btn" data-action="delete-tx" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(isEdit ? 'แก้ไขรายการ' : 'เพิ่มรายรับ-รายจ่าย') +
+        typeToggle('tx-type', incomeExpenseToggle, type) +
+        hiddenField('type', type) +
+        (isEdit ? hiddenField('id', existing.id) : '') +
+        numberField('จำนวนเงิน', 'amount', { value: existing.amount != null ? existing.amount : '' }) +
+        selectField('บัญชี', 'accountId', accountOptions(existing.accountId)) +
+        selectField('หมวดหมู่', 'categoryId', categoryOptionsByType(type, existing.categoryId)) +
+        dateField('วันที่', 'date', existing.date ? existing.date.slice(0,10) : todayISO()) +
+        textField('โน้ต (ไม่บังคับ)', 'note', { value: existing.note || '', placeholder: 'รายละเอียดเพิ่มเติม' }) +
+        modalActions(isEdit ? deleteBtn('delete-tx', existing.id) : null) +
       '</form>';
   }
 
@@ -936,17 +1075,11 @@
     existing = existing || null;
     return '' +
       '<form id="accountForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (existing?'แก้ไขบัญชี':'เพิ่มบัญชี') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        (existing ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>ชื่อบัญชี</span><input type="text" name="name" required value="' + escapeHtml(existing?existing.name:'') + '" placeholder="เช่น บัญชีออมทรัพย์"></label>' +
-        '<label class="field"><span>ประเภท</span><select name="type">' +
-          Object.keys(accountTypeLabels).map(function(k){ return '<option value="' + k + '"' + (existing&&existing.type===k?' selected':'') + '>' + accountTypeLabels[k] + '</option>'; }).join('') +
-        '</select></label>' +
-        '<div class="modal-actions">' +
-          (existing ? '<button type="button" class="danger-btn" data-action="delete-account" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(existing ? 'แก้ไขบัญชี' : 'เพิ่มบัญชี') +
+        (existing ? hiddenField('id', existing.id) : '') +
+        textField('ชื่อบัญชี', 'name', { value: existing ? existing.name : '', required: true, placeholder: 'เช่น บัญชีออมทรัพย์' }) +
+        selectField('ประเภท', 'type', labelOptions(accountTypeLabels, existing && existing.type), false) +
+        modalActions(existing ? deleteBtn('delete-account', existing.id) : null) +
       '</form>';
   }
 
@@ -955,13 +1088,11 @@
     var type = (existing && existing.type) || defaultType || 'expense';
     return '' +
       '<form id="categoryForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (existing?'แก้ไขหมวดหมู่':'เพิ่มหมวดหมู่') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        (existing ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<input type="hidden" name="type" value="' + type + '">' +
-        '<label class="field"><span>ชื่อหมวดหมู่ (' + (type==='income'?'รายรับ':'รายจ่าย') + ')</span>' +
-        '<input type="text" name="name" required value="' + escapeHtml(existing?existing.name:'') + '" placeholder="เช่น อาหาร"></label>' +
-        '<div class="modal-actions"><span></span><button type="submit" class="primary-btn">บันทึก</button></div>' +
+        modalHeader(existing ? 'แก้ไขหมวดหมู่' : 'เพิ่มหมวดหมู่') +
+        (existing ? hiddenField('id', existing.id) : '') +
+        hiddenField('type', type) +
+        textField('ชื่อหมวดหมู่ (' + (type === 'income' ? 'รายรับ' : 'รายจ่าย') + ')', 'name', { value: existing ? existing.name : '', required: true, placeholder: 'เช่น อาหาร' }) +
+        modalActions(null) +
       '</form>';
   }
 
@@ -969,86 +1100,87 @@
     existing = existing || null;
     return '' +
       '<form id="holdingForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (existing?'แก้ไขรายการลงทุน':'เพิ่มรายการลงทุน') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        (existing ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>สัญลักษณ์/ชื่อย่อ</span><input type="text" name="symbol" required value="' + escapeHtml(existing?existing.symbol:'') + '" placeholder="เช่น PTT, SPY, BTC"></label>' +
-        '<label class="field"><span>ชื่อเต็ม (ไม่บังคับ)</span><input type="text" name="name" value="' + escapeHtml(existing?existing.name||'':'') + '" placeholder="เช่น บมจ.ปตท."></label>' +
-        '<label class="field"><span>ประเภทสินทรัพย์</span><select name="assetType">' +
-          Object.keys(assetTypeLabels).map(function(k){ return '<option value="' + k + '"' + (existing&&existing.assetType===k?' selected':'') + '>' + assetTypeLabels[k] + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>จำนวนหน่วยที่ถืออยู่</span><input type="number" step="0.0001" min="0" name="quantity" required value="' + (existing?existing.quantity:'') + '" placeholder="0"></label>' +
-        '<label class="field"><span>ต้นทุนเฉลี่ยต่อหน่วย</span><input type="number" step="0.01" min="0" name="avgCost" required value="' + (existing?existing.avgCost:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>ราคาตลาดล่าสุดต่อหน่วย</span><input type="number" step="0.01" min="0" name="currentPrice" required value="' + (existing?existing.currentPrice:'') + '" placeholder="0.00"></label>' +
-        '<div class="modal-actions">' +
-          (existing ? '<button type="button" class="danger-btn" data-action="delete-holding" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(existing ? 'แก้ไขรายการลงทุน' : 'เพิ่มรายการลงทุน') +
+        (existing ? hiddenField('id', existing.id) : '') +
+        textField('สัญลักษณ์/ชื่อย่อ', 'symbol', { value: existing ? existing.symbol : '', required: true, placeholder: 'เช่น PTT, SPY, BTC' }) +
+        textField('ชื่อเต็ม (ไม่บังคับ)', 'name', { value: existing ? (existing.name || '') : '', placeholder: 'เช่น บมจ.ปตท.' }) +
+        selectField('ประเภทสินทรัพย์', 'assetType', labelOptions(assetTypeLabels, existing && existing.assetType), false) +
+        numberField('จำนวนหน่วยที่ถืออยู่', 'quantity', { value: existing ? existing.quantity : '', placeholder: '0' }) +
+        numberField('ต้นทุนเฉลี่ยต่อหน่วย', 'avgCost', { value: existing ? existing.avgCost : '' }) +
+        numberField('ราคาตลาดล่าสุดต่อหน่วย', 'currentPrice', { value: existing ? existing.currentPrice : '' }) +
+        modalActions(existing ? deleteBtn('delete-holding', existing.id) : null) +
       '</form>';
   }
 
   function updatePriceModal(h) {
     return '' +
       '<form id="priceForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">อัปเดตราคา · ' + escapeHtml(h.symbol) + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        '<input type="hidden" name="id" value="' + h.id + '">' +
-        '<label class="field"><span>ราคาตลาดล่าสุดต่อหน่วย</span><input type="number" step="0.01" min="0" name="currentPrice" required value="' + h.currentPrice + '"></label>' +
-        '<div class="modal-actions"><span></span><button type="submit" class="primary-btn">บันทึก</button></div>' +
+        modalHeader('อัปเดตราคา · ' + escapeHtml(h.symbol)) +
+        hiddenField('id', h.id) +
+        numberField('ราคาตลาดล่าสุดต่อหน่วย (ปัจจุบัน ' + fmtInvMoney(h.currentPrice) + ')', 'currentPrice', { value: h.currentPrice }) +
+        modalActions(null) +
       '</form>';
   }
 
   function investTxFields(type) {
     if (type === 'dividend') {
-      return '<label class="field"><span>จำนวนเงินปันผลที่ได้รับ</span><input type="number" step="0.01" min="0" name="amount" required placeholder="0.00"></label>';
+      return numberField('จำนวนเงินปันผลที่ได้รับ', 'amount');
     }
     return '' +
-      '<label class="field"><span>จำนวนหน่วย</span><input type="number" step="0.0001" min="0" name="quantity" required placeholder="0"></label>' +
-      '<label class="field"><span>ราคาต่อหน่วย</span><input type="number" step="0.01" min="0" name="price" required placeholder="0.00"></label>' +
-      '<label class="field"><span>ค่าธรรมเนียม (ไม่บังคับ)</span><input type="number" step="0.01" min="0" name="fee" placeholder="0.00"></label>';
+      numberField('จำนวนหน่วย', 'quantity', { placeholder: '0' }) +
+      numberField('ราคาต่อหน่วย', 'price') +
+      numberField('ค่าธรรมเนียม (ไม่บังคับ)', 'fee', { required: false });
   }
 
   function investTxModal(h) {
     return '' +
       '<form id="investTxForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">บันทึกธุรกรรม · ' + escapeHtml(h.symbol) + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        '<input type="hidden" name="holdingId" value="' + h.id + '">' +
-        '<input type="hidden" name="type" value="buy">' +
-        '<div class="type-toggle">' +
-          '<button type="button" class="type-btn active" data-action="invtx-type" data-type="buy">ซื้อ</button>' +
-          '<button type="button" class="type-btn" data-action="invtx-type" data-type="sell">ขาย</button>' +
-          '<button type="button" class="type-btn" data-action="invtx-type" data-type="dividend">ปันผล</button>' +
-        '</div>' +
+        modalHeader('บันทึกธุรกรรม · ' + escapeHtml(h.symbol)) +
+        hiddenField('holdingId', h.id) +
+        hiddenField('type', 'buy') +
+        typeToggle('invtx-type', [
+          { type: 'buy', label: 'ซื้อ' },
+          { type: 'sell', label: 'ขาย' },
+          { type: 'dividend', label: 'ปันผล' }
+        ], 'buy') +
+        selectField('บัญชีที่ใช้ซื้อ/รับเงิน', 'accountId', accountOptions(null)) +
         '<div id="investTxFields">' + investTxFields('buy') + '</div>' +
-        '<label class="field"><span>วันที่</span><input type="date" name="date" required value="' + todayISO() + '"></label>' +
-        '<label class="field"><span>โน้ต (ไม่บังคับ)</span><input type="text" name="note" placeholder="รายละเอียดเพิ่มเติม"></label>' +
-        '<div class="modal-actions"><span></span><button type="submit" class="primary-btn">บันทึก</button></div>' +
+        dateField('วันที่', 'date', todayISO()) +
+        textField('โน้ต (ไม่บังคับ)', 'note', { placeholder: 'รายละเอียดเพิ่มเติม' }) +
+        modalActions(null) +
       '</form>';
+  }
+
+  function investTxDetailModal(t) {
+    var holding = state.holdings[t.holdingId];
+    var acc = state.accounts[t.accountId];
+    var actionLabel = t.investAction === 'buy' ? 'ซื้อ' : (t.investAction === 'sell' ? 'ขาย' : 'ปันผล');
+    return '' +
+      '<div class="modal-form">' +
+        modalHeader(actionLabel + (holding ? ' · ' + escapeHtml(holding.symbol) : '')) +
+        fieldDisplay('บัญชี', acc ? escapeHtml(acc.name) : '-') +
+        (t.quantity != null ? fieldDisplay('จำนวนหน่วย · ราคาต่อหน่วย', fmtQty(t.quantity) + ' @ ' + fmtInvMoney(t.price) + (t.fee ? ' (ค่าธรรมเนียม ' + fmtInvMoney(t.fee) + ')' : '')) : '') +
+        fieldDisplay('จำนวนเงิน' + (t.investAction === 'buy' ? 'ที่หักจากบัญชี' : 'ที่เข้าบัญชี'), fmtInvMoney(t.amount)) +
+        fieldDisplay('วันที่', fmtDateFull(t.date)) +
+        (t.note ? fieldDisplay('โน้ต', escapeHtml(t.note)) : '') +
+        '<div class="tax-note">ลบรายการนี้จะคืนจำนวนหน่วย/ต้นทุนเฉลี่ยของ ' + (holding ? escapeHtml(holding.symbol) : 'สินทรัพย์นี้') + ' และคืนเงินสดในบัญชีให้ใกล้เคียงกับก่อนทำรายการนี้ (ถ้ามีการซื้อ/ขายอื่นคั่นอยู่ระหว่างนั้น ต้นทุนเฉลี่ยที่คืนอาจไม่ตรงเป๊ะ ควรตรวจสอบอีกครั้ง)</div>' +
+        '<div class="modal-actions">' + deleteBtn('delete-invest-tx', t.id, 'ลบรายการนี้') + '<span></span></div>' +
+      '</div>';
   }
 
   function transferModal(existing) {
     existing = existing || {};
     var isEdit = !!existing.id;
-    var accs = Object.values(state.accounts);
     return '' +
       '<form id="transferForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (isEdit?'แก้ไขการโอนเงิน':'โอนเงินระหว่างบัญชี') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        (isEdit ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>จำนวนเงิน</span><input type="number" step="0.01" min="0" name="amount" required value="' + (existing.amount!=null?existing.amount:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>จากบัญชี</span><select name="fromAccountId" required>' +
-          accs.map(function(a){ return '<option value="' + a.id + '"' + (existing.fromAccountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>ไปบัญชี (เช่น บัตรเครดิตที่จะจ่ายบิล)</span><select name="toAccountId" required>' +
-          accs.map(function(a){ return '<option value="' + a.id + '"' + (existing.toAccountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>วันที่</span><input type="date" name="date" required value="' + (existing.date?existing.date.slice(0,10):todayISO()) + '"></label>' +
-        '<label class="field"><span>โน้ต (ไม่บังคับ)</span><input type="text" name="note" value="' + escapeHtml(existing.note||'') + '" placeholder="เช่น จ่ายบิลบัตรเครดิต"></label>' +
-        '<div class="modal-actions">' +
-          (isEdit ? '<button type="button" class="danger-btn" data-action="delete-tx" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(isEdit ? 'แก้ไขการโอนเงิน' : 'โอนเงินระหว่างบัญชี') +
+        (isEdit ? hiddenField('id', existing.id) : '') +
+        numberField('จำนวนเงิน', 'amount', { value: existing.amount != null ? existing.amount : '' }) +
+        selectField('จากบัญชี', 'fromAccountId', accountOptions(existing.fromAccountId)) +
+        selectField('ไปบัญชี (เช่น บัตรเครดิตที่จะจ่ายบิล)', 'toAccountId', accountOptions(existing.toAccountId)) +
+        dateField('วันที่', 'date', existing.date ? existing.date.slice(0,10) : todayISO()) +
+        textField('โน้ต (ไม่บังคับ)', 'note', { value: existing.note || '', placeholder: 'เช่น จ่ายบิลบัตรเครดิต' }) +
+        modalActions(isEdit ? deleteBtn('delete-tx', existing.id) : null) +
       '</form>';
   }
 
@@ -1056,17 +1188,13 @@
     existing = existing || null;
     return '' +
       '<form id="debtForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (existing?'แก้ไขหนี้':'เพิ่มหนี้ใหม่') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        (existing ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>ชื่อรายการหนี้</span><input type="text" name="name" required value="' + escapeHtml(existing?existing.name:'') + '" placeholder="เช่น ผ่อนบ้าน, สินเชื่อรถ"></label>' +
-        '<label class="field"><span>ยอดกู้ตั้งต้น</span><input type="number" step="0.01" min="0" name="principal" required value="' + (existing?existing.principal:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>วันที่เริ่มกู้ (ไม่บังคับ)</span><input type="date" name="startDate" value="' + (existing&&existing.startDate?existing.startDate.slice(0,10):'') + '"></label>' +
-        '<label class="field"><span>โน้ต (ไม่บังคับ)</span><input type="text" name="note" value="' + escapeHtml(existing?existing.note||'':'') + '" placeholder="เช่น ชื่อธนาคาร"></label>' +
-        '<div class="modal-actions">' +
-          (existing ? '<button type="button" class="danger-btn" data-action="delete-debt" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(existing ? 'แก้ไขหนี้' : 'เพิ่มหนี้ใหม่') +
+        (existing ? hiddenField('id', existing.id) : '') +
+        textField('ชื่อรายการหนี้', 'name', { value: existing ? existing.name : '', required: true, placeholder: 'เช่น ผ่อนบ้าน, สินเชื่อรถ' }) +
+        numberField('ยอดกู้ตั้งต้น', 'principal', { value: existing ? existing.principal : '' }) +
+        dateField('วันที่เริ่มกู้ (ไม่บังคับ)', 'startDate', existing && existing.startDate ? existing.startDate.slice(0,10) : '', false) +
+        textField('โน้ต (ไม่บังคับ)', 'note', { value: existing ? (existing.note || '') : '', placeholder: 'เช่น ชื่อธนาคาร' }) +
+        modalActions(existing ? deleteBtn('delete-debt', existing.id) : null) +
       '</form>';
   }
 
@@ -1074,18 +1202,14 @@
     existing = existing || null;
     return '' +
       '<form id="paymentForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (existing?'แก้ไขรายการผ่อนชำระ':'บันทึกการผ่อนชำระ') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        '<input type="hidden" name="debtId" value="' + (existing?existing.debtId:debtId) + '">' +
-        (existing ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>วันที่ชำระ</span><input type="date" name="date" required value="' + (existing?existing.date.slice(0,10):todayISO()) + '"></label>' +
-        '<label class="field"><span>เงินต้น</span><input type="number" step="0.01" min="0" name="principal" required value="' + (existing?existing.principal:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>ดอกเบี้ย</span><input type="number" step="0.01" min="0" name="interest" required value="' + (existing?existing.interest:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>โน้ต (ไม่บังคับ)</span><input type="text" name="note" value="' + escapeHtml(existing?existing.note||'':'') + '"></label>' +
-        '<div class="modal-actions">' +
-          (existing ? '<button type="button" class="danger-btn" data-action="delete-payment" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(existing ? 'แก้ไขรายการผ่อนชำระ' : 'บันทึกการผ่อนชำระ') +
+        hiddenField('debtId', existing ? existing.debtId : debtId) +
+        (existing ? hiddenField('id', existing.id) : '') +
+        dateField('วันที่ชำระ', 'date', existing ? existing.date.slice(0,10) : todayISO()) +
+        numberField('เงินต้น', 'principal', { value: existing ? existing.principal : '' }) +
+        numberField('ดอกเบี้ย', 'interest', { value: existing ? existing.interest : '' }) +
+        textField('โน้ต (ไม่บังคับ)', 'note', { value: existing ? (existing.note || '') : '' }) +
+        modalActions(existing ? deleteBtn('delete-payment', existing.id) : null) +
       '</form>';
   }
 
@@ -1093,57 +1217,40 @@
     var existing = Object.values(state.budgets).find(function(x){ return x.categoryId === category.id; });
     return '' +
       '<form id="budgetForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">งบประมาณ · ' + escapeHtml(category.name) + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        '<input type="hidden" name="categoryId" value="' + category.id + '">' +
-        (existing ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>วงเงินต่อเดือน</span><input type="number" step="0.01" min="0" name="amount" required value="' + (existing?existing.amount:'') + '" placeholder="0.00"></label>' +
-        '<div class="modal-actions">' +
-          (existing ? '<button type="button" class="danger-btn" data-action="delete-budget" data-id="' + existing.id + '">ลบงบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader('งบประมาณ · ' + escapeHtml(category.name)) +
+        hiddenField('categoryId', category.id) +
+        (existing ? hiddenField('id', existing.id) : '') +
+        numberField('วงเงินต่อเดือน', 'amount', { value: existing ? existing.amount : '' }) +
+        modalActions(existing ? deleteBtn('delete-budget', existing.id, 'ลบงบ') : null) +
       '</form>';
   }
 
   function recurringModal(existing) {
     existing = existing || {};
     var type = existing.type || 'expense';
-    var cats = Object.values(state.categories).filter(function(c){ return c.type === type; });
-    var accs = Object.values(state.accounts);
     return '' +
       '<form id="recurringForm" class="modal-form">' +
-        '<div class="modal-header"><div class="modal-title">' + (existing.id?'แก้ไขรายการที่เกิดซ้ำ':'เพิ่มรายการที่เกิดซ้ำ') + '</div>' +
-        '<button type="button" class="icon-btn" data-action="close-modal">✕</button></div>' +
-        '<div class="type-toggle">' +
-          '<button type="button" class="type-btn' + (type==='expense'?' active expense':'') + '" data-action="rec-type" data-type="expense">รายจ่าย</button>' +
-          '<button type="button" class="type-btn' + (type==='income'?' active income':'') + '" data-action="rec-type" data-type="income">รายรับ</button>' +
-        '</div>' +
-        '<input type="hidden" name="type" value="' + type + '">' +
-        (existing.id ? '<input type="hidden" name="id" value="' + existing.id + '">' : '') +
-        '<label class="field"><span>ชื่อรายการ</span><input type="text" name="note" required value="' + escapeHtml(existing.note||'') + '" placeholder="เช่น ค่าเช่าบ้าน, Netflix"></label>' +
-        '<label class="field"><span>จำนวนเงิน</span><input type="number" step="0.01" min="0" name="amount" required value="' + (existing.amount!=null?existing.amount:'') + '" placeholder="0.00"></label>' +
-        '<label class="field"><span>บัญชี</span><select name="accountId" required>' +
-          accs.map(function(a){ return '<option value="' + a.id + '"' + (existing.accountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>หมวดหมู่</span><select name="categoryId" required>' +
-          cats.map(function(c){ return '<option value="' + c.id + '"' + (existing.categoryId===c.id?' selected':'') + '>' + escapeHtml(c.name) + '</option>'; }).join('') +
-        '</select></label>' +
-        '<label class="field"><span>วันที่ครั้งถัดไป</span><input type="date" name="nextDate" required value="' + (existing.nextDate?existing.nextDate.slice(0,10):todayISO()) + '"></label>' +
-        '<div class="modal-actions">' +
-          (existing.id ? '<button type="button" class="danger-btn" data-action="delete-recurring" data-id="' + existing.id + '">ลบ</button>' : '<span></span>') +
-          '<button type="submit" class="primary-btn">บันทึก</button>' +
-        '</div>' +
+        modalHeader(existing.id ? 'แก้ไขรายการที่เกิดซ้ำ' : 'เพิ่มรายการที่เกิดซ้ำ') +
+        typeToggle('rec-type', incomeExpenseToggle, type) +
+        hiddenField('type', type) +
+        (existing.id ? hiddenField('id', existing.id) : '') +
+        textField('ชื่อรายการ', 'note', { value: existing.note || '', required: true, placeholder: 'เช่น ค่าเช่าบ้าน, Netflix' }) +
+        numberField('จำนวนเงิน', 'amount', { value: existing.amount != null ? existing.amount : '' }) +
+        selectField('บัญชี', 'accountId', accountOptions(existing.accountId)) +
+        selectField('หมวดหมู่', 'categoryId', categoryOptionsByType(type, existing.categoryId)) +
+        dateField('วันที่ครั้งถัดไป', 'nextDate', existing.nextDate ? existing.nextDate.slice(0,10) : todayISO()) +
+        modalActions(existing.id ? deleteBtn('delete-recurring', existing.id) : null) +
       '</form>';
   }
 
   // ---------- form handlers ----------
   function saveTransaction(fd) {
-    var data = { type: fd.type, amount: Number(fd.amount), accountId: fd.accountId, categoryId: fd.categoryId, date: fd.date, note: fd.note || '' };
+    var data = { type: fd.type, amount: requirePositive(fd.amount, 'จำนวนเงิน'), accountId: fd.accountId, categoryId: fd.categoryId, date: fd.date, note: fd.note || '' };
     return fd.id ? Store.update('transactions', fd.id, data) : Store.add('transactions', data);
   }
   function saveTransfer(fd) {
     if (fd.fromAccountId === fd.toAccountId) return Promise.reject(new Error('บัญชีต้นทางและปลายทางต้องไม่ใช่บัญชีเดียวกัน'));
-    var data = { type: 'transfer', amount: Number(fd.amount), fromAccountId: fd.fromAccountId, toAccountId: fd.toAccountId, date: fd.date, note: fd.note || '' };
+    var data = { type: 'transfer', amount: requirePositive(fd.amount, 'จำนวนเงิน'), fromAccountId: fd.fromAccountId, toAccountId: fd.toAccountId, date: fd.date, note: fd.note || '' };
     return fd.id ? Store.update('transactions', fd.id, data) : Store.add('transactions', data);
   }
   function saveAccount(fd) {
@@ -1155,27 +1262,31 @@
     return fd.id ? Store.update('categories', fd.id, data) : Store.add('categories', data);
   }
   function saveHolding(fd) {
-    var data = { symbol: fd.symbol, name: fd.name || '', assetType: fd.assetType, quantity: Number(fd.quantity), avgCost: Number(fd.avgCost), currentPrice: Number(fd.currentPrice) };
+    var data = { symbol: fd.symbol, name: fd.name || '', assetType: fd.assetType, quantity: requirePositive(fd.quantity, 'จำนวนหน่วย'), avgCost: requirePositive(fd.avgCost, 'ต้นทุนเฉลี่ย'), currentPrice: requirePositive(fd.currentPrice, 'ราคาล่าสุด') };
     return fd.id ? Store.update('holdings', fd.id, data) : Store.add('holdings', data);
   }
   function savePrice(fd) {
-    return Store.update('holdings', fd.id, { currentPrice: Number(fd.currentPrice) });
+    return Store.update('holdings', fd.id, { currentPrice: requirePositive(fd.currentPrice, 'ราคา') });
   }
   function saveInvestTx(fd) {
     var holding = state.holdings[fd.holdingId];
     if (!holding) return Promise.reject(new Error('ไม่พบรายการลงทุนนี้'));
+    if (!fd.accountId || !state.accounts[fd.accountId]) return Promise.reject(new Error('กรุณาเลือกบัญชีที่ใช้ซื้อ/รับเงิน'));
     var type = fd.type;
-    var record = { holdingId: fd.holdingId, type: type, date: fd.date, note: fd.note || '' };
+    var record = { holdingId: fd.holdingId, type: type, date: fd.date, note: fd.note || '', accountId: fd.accountId };
     var updateP = Promise.resolve();
+    var cashAmount;
 
     if (type === 'dividend') {
-      record.amount = Number(fd.amount);
+      record.amount = requirePositive(fd.amount, 'จำนวนเงินปันผล');
+      cashAmount = record.amount;
     } else {
-      var qty = Number(fd.quantity);
-      var price = Number(fd.price);
-      var fee = Number(fd.fee || 0);
+      var qty = requirePositive(fd.quantity, 'จำนวนหน่วย');
+      var price = requirePositive(fd.price, 'ราคาต่อหน่วย');
+      var fee = requirePositive(fd.fee || 0, 'ค่าธรรมเนียม');
       record.quantity = qty; record.price = price; record.fee = fee;
       record.amount = qty*price + (type==='buy'?fee:-fee);
+      cashAmount = record.amount;
       var curQty = Number(holding.quantity) || 0;
       var curAvg = Number(holding.avgCost) || 0;
       if (type === 'buy') {
@@ -1187,15 +1298,54 @@
         updateP = Store.update('holdings', holding.id, { quantity: curQty - qty });
       }
     }
-    return updateP.then(function(){ return Store.add('investmentTxns', record); });
+    // เพิ่มธุรกรรมลงทุน (ต้นทุน/ปันผล) แล้วบันทึกรายการเงินสดคู่กันในบัญชีที่เลือก เพื่อให้ยอดเงินสด/มูลค่าสุทธิถูกต้อง
+    // (ซื้อ = หักเงินสดออกจากบัญชี, ขาย/ปันผล = เพิ่มเงินสดเข้าบัญชี — ดู accountBalance())
+    // เก็บ invTxnId + quantity/price/fee ไว้ในรายการเงินสดด้วย เพื่อให้ลบ/ย้อนรายการนี้ภายหลังได้ถูกต้อง (ดู confirmDeleteInvestTx)
+    return updateP.then(function(){ return Store.add('investmentTxns', record); }).then(function(invTxnId){
+      var actionLabel = type === 'buy' ? 'ซื้อ' : (type === 'sell' ? 'ขาย' : 'ปันผล');
+      return Store.add('transactions', {
+        type: 'investment', investAction: type, holdingId: fd.holdingId, accountId: fd.accountId,
+        amount: cashAmount, date: fd.date, invTxnId: invTxnId,
+        quantity: record.quantity, price: record.price, fee: record.fee,
+        note: (holding.symbol ? holding.symbol + ' · ' : '') + actionLabel + (fd.note ? ' · ' + fd.note : '')
+      });
+    });
   }
 
   function confirmDeleteTx(id) {
     if (confirm('ลบรายการนี้ใช่หรือไม่')) { Store.remove('transactions', id); closeModal(); }
   }
+  function confirmDeleteInvestTx(id) {
+    var t = state.transactions[id];
+    if (!t || t.type !== 'investment') return;
+    if (!confirm('ลบรายการนี้ใช่หรือไม่ (ระบบจะคืนจำนวนหน่วย/เงินสดในบัญชีให้ใกล้เคียงก่อนทำรายการนี้)')) return;
+    var holding = state.holdings[t.holdingId];
+    if (holding && t.investAction !== 'dividend' && t.quantity != null) {
+      var curQty = Number(holding.quantity) || 0;
+      var curAvg = Number(holding.avgCost) || 0;
+      if (t.investAction === 'buy') {
+        var newQty = Math.max(0, curQty - Number(t.quantity));
+        // ต้นทุนเฉลี่ยที่คืนคำนวณโดยหักต้นทุนของรายการนี้ออกจากต้นทุนรวมปัจจุบัน — แม่นยำ 100% เฉพาะกรณีไม่มีการซื้อ/ขายอื่นคั่นระหว่างนั้น
+        var removedCost = Number(t.quantity) * Number(t.price || 0) + Number(t.fee || 0);
+        var newTotalCost = Math.max(0, curQty * curAvg - removedCost);
+        var newAvg = newQty > 0 ? newTotalCost / newQty : 0;
+        Store.update('holdings', holding.id, { quantity: newQty, avgCost: newAvg });
+      } else if (t.investAction === 'sell') {
+        Store.update('holdings', holding.id, { quantity: curQty + Number(t.quantity) });
+      }
+    }
+    if (t.invTxnId) Store.remove('investmentTxns', t.invTxnId);
+    Store.remove('transactions', id);
+    closeModal();
+  }
   function confirmDeleteAccount(id) {
-    var hasTx = Object.values(state.transactions).some(function(t){ return t.accountId===id; });
-    if (hasTx) { alert('ไม่สามารถลบบัญชีที่มีรายการอยู่ได้ กรุณาลบหรือย้ายรายการก่อน'); return; }
+    var hasTx = Object.values(state.transactions).some(function(t){
+      if (t.type === 'transfer') return t.fromAccountId === id || t.toAccountId === id;
+      return t.accountId === id;
+    });
+    if (hasTx) { alert('ไม่สามารถลบบัญชีที่มีรายการอยู่ได้ (รวมถึงรายการโอนเงิน/ธุรกรรมลงทุน) กรุณาลบหรือย้ายรายการก่อน'); return; }
+    var hasRecurring = Object.values(state.recurringTemplates).some(function(r){ return r.accountId === id; });
+    if (hasRecurring) { alert('ไม่สามารถลบบัญชีที่มีรายการเกิดซ้ำ (เช่น ค่าเช่า, ค่าบริการรายเดือน) ผูกอยู่ได้ กรุณาลบหรือย้ายรายการเกิดซ้ำก่อน'); return; }
     if (confirm('ลบบัญชีนี้ใช่หรือไม่')) { Store.remove('accounts', id); closeModal(); }
   }
   function confirmDeleteCategory(id) {
@@ -1208,11 +1358,11 @@
   }
 
   function saveDebt(fd) {
-    var data = { name: fd.name, principal: Number(fd.principal), startDate: fd.startDate || '', note: fd.note || '' };
+    var data = { name: fd.name, principal: requirePositive(fd.principal, 'ยอดกู้'), startDate: fd.startDate || '', note: fd.note || '' };
     return fd.id ? Store.update('debts', fd.id, data) : Store.add('debts', data);
   }
   function savePayment(fd) {
-    var data = { debtId: fd.debtId, date: fd.date, principal: Number(fd.principal), interest: Number(fd.interest), note: fd.note || '' };
+    var data = { debtId: fd.debtId, date: fd.date, principal: requirePositive(fd.principal, 'เงินต้น'), interest: requirePositive(fd.interest, 'ดอกเบี้ย'), note: fd.note || '' };
     return fd.id ? Store.update('debtPayments', fd.id, data) : Store.add('debtPayments', data);
   }
   function confirmDeleteDebt(id) {
@@ -1224,7 +1374,7 @@
   }
 
   function saveBudget(fd) {
-    var data = { categoryId: fd.categoryId, amount: Number(fd.amount) };
+    var data = { categoryId: fd.categoryId, amount: requirePositive(fd.amount, 'วงเงิน') };
     return fd.id ? Store.update('budgets', fd.id, data) : Store.add('budgets', data);
   }
   function confirmDeleteBudget(id) {
@@ -1232,7 +1382,7 @@
   }
 
   function saveRecurring(fd) {
-    var data = { type: fd.type, note: fd.note, amount: Number(fd.amount), accountId: fd.accountId, categoryId: fd.categoryId, nextDate: fd.nextDate, dayOfMonth: new Date(fd.nextDate).getDate(), active: true };
+    var data = { type: fd.type, note: fd.note, amount: requirePositive(fd.amount, 'จำนวนเงิน'), accountId: fd.accountId, categoryId: fd.categoryId, nextDate: fd.nextDate, dayOfMonth: new Date(fd.nextDate).getDate(), active: true };
     return fd.id ? Store.update('recurringTemplates', fd.id, data) : Store.add('recurringTemplates', data);
   }
   function confirmDeleteRecurring(id) {
@@ -1260,7 +1410,12 @@
     if (!allReady()) return;
     if (currentTab === 'investments') { openModal(holdingModal(null)); return; }
     if (currentTab === 'debts') {
-      if (selectedDebtId) openModal(paymentModal(null, selectedDebtId));
+      if (isCreditDebtId(selectedDebtId)) {
+        // บัตรเครดิตคำนวณยอดหนี้สดจากบัญชี ไม่มีฟอร์มบันทึกการผ่อนชำระให้ใช้ — กันไม่ให้สร้าง debtPayments ที่ผูกกับ debtId ปลอม
+        alert('บัตรเครดิตคำนวณยอดหนี้สดจากรายการโอนเงิน ไม่ต้องบันทึกการผ่อนชำระแยก ใช้ปุ่ม "⇄ โอนเงินระหว่างบัญชี" ในแท็บ "รายการ" แทน');
+        return;
+      }
+      if (selectedDebtId && state.debts[selectedDebtId]) openModal(paymentModal(null, selectedDebtId));
       else openModal(debtModal(null));
       return;
     }
@@ -1280,13 +1435,20 @@
         rows.push([ t.date, 'โอนเงิน', fromName + ' → ' + toName, '', t.amount, t.note||'' ]);
         return;
       }
+      if (t.type === 'investment') {
+        var invAccName = (state.accounts[t.accountId]&&state.accounts[t.accountId].name)||'';
+        var invHoldingName = (state.holdings[t.holdingId]&&state.holdings[t.holdingId].symbol)||'';
+        var invLabel = t.investAction==='buy' ? 'ซื้อการลงทุน' : (t.investAction==='sell' ? 'ขายการลงทุน' : 'ปันผล');
+        rows.push([ t.date, invLabel, invAccName, invHoldingName, t.amount, t.note||'' ]);
+        return;
+      }
       rows.push([ t.date, t.type==='income'?'รายรับ':'รายจ่าย',
         (state.accounts[t.accountId]&&state.accounts[t.accountId].name)||'',
         (state.categories[t.categoryId]&&state.categories[t.categoryId].name)||'',
         t.amount, t.note||'' ]);
     });
     var csv = rows.map(function(r){ return r.map(csvEscape).join(','); }).join('\r\n');
-    var blob = new Blob(["\uFEFF" + csv], { type: 'text/csv;charset=utf-8;' });
+    var blob = new Blob(["﻿" + csv], { type: 'text/csv;charset=utf-8;' });
     var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
     a.href = url; a.download = 'transactions.csv';
@@ -1314,9 +1476,11 @@
       case 'edit-tx':
         var txItem = state.transactions[id];
         if (txItem && txItem.type === 'transfer') openModal(transferModal(txItem));
+        else if (txItem && txItem.type === 'investment') openModal(investTxDetailModal(txItem));
         else openModal(transactionModal(txItem));
         break;
       case 'delete-tx': confirmDeleteTx(id); break;
+      case 'delete-invest-tx': confirmDeleteInvestTx(id); break;
       case 'tx-type': handleTxTypeSwitch(el.dataset.type); break;
       case 'add-transfer': openModal(transferModal(null)); break;
       case 'add-holding': openModal(holdingModal(null)); break;
@@ -1361,22 +1525,29 @@
     e.preventDefault();
     var form = e.target;
     var fd = Object.fromEntries(new FormData(form).entries());
-    var action;
-    if (form.id === 'txForm') action = saveTransaction(fd);
-    else if (form.id === 'transferForm') action = saveTransfer(fd);
-    else if (form.id === 'accountForm') action = saveAccount(fd);
-    else if (form.id === 'categoryForm') action = saveCategory(fd);
-    else if (form.id === 'holdingForm') action = saveHolding(fd);
-    else if (form.id === 'priceForm') action = savePrice(fd);
-    else if (form.id === 'investTxForm') action = saveInvestTx(fd);
-    else if (form.id === 'debtForm') action = saveDebt(fd);
-    else if (form.id === 'paymentForm') action = savePayment(fd);
-    else if (form.id === 'budgetForm') action = saveBudget(fd);
-    else if (form.id === 'recurringForm') action = saveRecurring(fd);
-    else return;
-    Promise.resolve(action).then(closeModal).catch(function(err){
-      alert('เกิดข้อผิดพลาด: ' + (err && err.message ? err.message : err));
-    });
+    try {
+      var action;
+      if (form.id === 'txForm') action = saveTransaction(fd);
+      else if (form.id === 'transferForm') action = saveTransfer(fd);
+      else if (form.id === 'accountForm') action = saveAccount(fd);
+      else if (form.id === 'categoryForm') action = saveCategory(fd);
+      else if (form.id === 'holdingForm') action = saveHolding(fd);
+      else if (form.id === 'priceForm') action = savePrice(fd);
+      else if (form.id === 'investTxForm') action = saveInvestTx(fd);
+      else if (form.id === 'debtForm') action = saveDebt(fd);
+      else if (form.id === 'paymentForm') action = savePayment(fd);
+      else if (form.id === 'budgetForm') action = saveBudget(fd);
+      else if (form.id === 'recurringForm') action = saveRecurring(fd);
+      else return;
+      Promise.resolve(action).then(function(){
+        closeModal();
+        showToast('บันทึกสำเร็จ', 'success');
+      }).catch(function(err){
+        showToast('บันทึกไม่สำเร็จ: ' + (err && err.message ? err.message : err), 'error');
+      });
+    } catch (err) {
+      showToast('บันทึกไม่สำเร็จ: ' + (err && err.message ? err.message : err), 'error');
+    }
   });
 
   modalOverlayEl.addEventListener('click', function(e){
