@@ -9,7 +9,6 @@
   // ===================================================================
 
   var accountTypeLabels = { cash:'เงินสด', bank:'บัญชีธนาคาร', credit:'บัตรเครดิต', ewallet:'อีวอลเล็ท', other:'อื่นๆ' };
-  var assetTypeLabels = { stock:'หุ้น', fund:'กองทุนรวม', crypto:'คริปโต', gold:'ทองคำ', bond:'พันธบัตร/หุ้นกู้', other:'อื่นๆ' };
   var defaultAccounts = [ {name:'เงินสด', type:'cash'}, {name:'บัญชีธนาคาร', type:'bank'} ];
   var defaultCategories = [
     {name:'เงินเดือน', type:'income'}, {name:'รายได้เสริม', type:'income'},
@@ -18,8 +17,8 @@
     {name:'สุขภาพ', type:'expense'}, {name:'บันเทิง', type:'expense'}, {name:'อื่นๆ', type:'expense'}
   ];
 
-  var state = { accounts:{}, categories:{}, transactions:{}, holdings:{}, investmentTxns:{}, debts:{}, debtPayments:{}, budgets:{}, recurringTemplates:{}, meta:{},
-    ready: { accounts:false, categories:false, transactions:false, holdings:false, investmentTxns:false, debts:false, debtPayments:false, budgets:false, recurringTemplates:false, meta:false } };
+  var state = { accounts:{}, categories:{}, transactions:{}, debts:{}, debtPayments:{}, budgets:{}, recurringTemplates:{}, meta:{},
+    ready: { accounts:false, categories:false, transactions:false, debts:false, debtPayments:false, budgets:false, recurringTemplates:false, meta:false } };
   var currentTab = 'dashboard';
   var seedAttempted = false;
   var recurringProcessed = false;
@@ -109,12 +108,6 @@
         if (t.toAccountId === accId) bal += Number(t.amount);
         return;
       }
-      if (t.type === 'investment') {
-        if (t.accountId !== accId) return;
-        // ซื้อ = เงินออกจากบัญชี, ขาย/ปันผล = เงินเข้าบัญชี
-        bal += (t.investAction === 'buy') ? -Number(t.amount) : Number(t.amount);
-        return;
-      }
       if (t.accountId !== accId) return;
       bal += t.type === 'income' ? Number(t.amount) : -Number(t.amount);
     });
@@ -150,14 +143,6 @@
   }
   function totalCash() {
     return Object.keys(state.accounts).reduce(function(sum,id){ return sum + accountBalance(id); }, 0);
-  }
-  function holdingValue(h) { return (Number(h.quantity)||0) * (Number(h.currentPrice)||0); }
-  function holdingCost(h) { return (Number(h.quantity)||0) * (Number(h.avgCost)||0); }
-  function totalInvestmentValue() {
-    return Object.values(state.holdings).reduce(function(s,h){ return s + holdingValue(h); }, 0);
-  }
-  function totalInvestmentCost() {
-    return Object.values(state.holdings).reduce(function(s,h){ return s + holdingCost(h); }, 0);
   }
   function transactionsForMonth(mKey) {
     return Object.values(state.transactions).filter(function(t){ return monthKey(t.date) === mKey; });
@@ -197,7 +182,7 @@
   var saveTimer = null;
 
   var Store = {
-    collections: ['accounts','categories','transactions','holdings','investmentTxns','debts','debtPayments','budgets','recurringTemplates','meta'],
+    collections: ['accounts','categories','transactions','debts','debtPayments','budgets','recurringTemplates','meta'],
     add: function(name, obj) {
       var id = 'id_' + Date.now() + '_' + Math.random().toString(36).slice(2,8);
       state[name][id] = Object.assign({id:id}, obj);
@@ -270,8 +255,25 @@
 
   function onDataChange() {
     maybeSeedDefaults();
+    maybeCleanupInvestmentData();
     maybeProcessRecurring();
     renderTab();
+  }
+
+  // ฟีเจอร์ "ลงทุน" (holdings/investmentTxns) ถูกถอดออกจากแอปแล้วเพื่อไปออกแบบใหม่ทีหลัง —
+  // ลบข้อมูลเก่าที่ค้างอยู่ใน Supabase ทิ้งแบบอัตโนมัติครั้งเดียว (รายการซื้อ/ขาย/ปันผลเก่าที่มี type:'investment'
+  // ในรายการธุรกรรม ถ้าปล่อยค้างไว้จะทำให้ยอดเงินคงเหลือในบัญชีคำนวณผิด เพราะ accountBalance() ไม่รู้จักประเภทนี้แล้ว)
+  var investmentCleanupAttempted = false;
+  function maybeCleanupInvestmentData() {
+    if (investmentCleanupAttempted) return;
+    if (!state.ready.transactions || !state.ready.meta) return;
+    investmentCleanupAttempted = true;
+    if (state.meta.app && state.meta.app.investmentDataCleaned) return;
+    Object.keys(state.transactions).forEach(function(id){
+      if (state.transactions[id].type === 'investment') delete state.transactions[id];
+    });
+    state.meta.app = Object.assign({id:'app'}, state.meta.app, {investmentDataCleaned:true});
+    scheduleSave();
   }
 
   function markSeeded() {
@@ -342,14 +344,13 @@
   }
 
   function renderTab() {
-    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'investments' || currentTab === 'debts');
+    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'debts');
     if (!allReady()) {
       tabContentEl.innerHTML = '<div class="card"><div class="empty-note">กำลังโหลดข้อมูล...</div></div>';
       return;
     }
     if (currentTab === 'dashboard') tabContentEl.innerHTML = renderDashboard();
     else if (currentTab === 'transactions') tabContentEl.innerHTML = renderTransactions();
-    else if (currentTab === 'investments') tabContentEl.innerHTML = renderInvestments();
     else if (currentTab === 'debts') tabContentEl.innerHTML = renderDebts();
     else tabContentEl.innerHTML = renderSettings();
     // renderDebts() อาจรีเซ็ต selectedDebtId เองถ้า id ไม่ถูกต้อง เรียกหลัง render เสมอเพื่อให้ปุ่ม + ตรงกับสถานะจริง
@@ -370,27 +371,6 @@
           '</div>' +
           '<div class="tx-side">' +
             '<div class="tx-amt transfer-text">' + fmtMoney(Number(t.amount)) + '</div>' +
-            '<div class="tx-date">' + fmtDateShort(t.date) + '</div>' +
-          '</div>' +
-        '</div>';
-    }
-    if (t.type === 'investment') {
-      var invAcc = state.accounts[t.accountId];
-      var invHolding = state.holdings[t.holdingId];
-      var actionLabel = t.investAction === 'buy' ? 'ซื้อ' : (t.investAction === 'sell' ? 'ขาย' : 'ปันผล');
-      var invSign = t.investAction === 'buy' ? '-' : '+';
-      var invCls = t.investAction === 'buy' ? 'expense-text' : 'income-text';
-      var invSub = [];
-      if (invAcc) invSub.push(escapeHtml(invAcc.name));
-      if (t.note) invSub.push(escapeHtml(t.note));
-      return '' +
-        '<div class="tx-row" data-action="edit-tx" data-id="' + t.id + '">' +
-          '<div class="tx-main">' +
-            '<div class="tx-cat">📈 ' + actionLabel + (invHolding ? ' ' + escapeHtml(invHolding.symbol) : '') + '</div>' +
-            '<div class="tx-sub">' + invSub.join(' · ') + '</div>' +
-          '</div>' +
-          '<div class="tx-side">' +
-            '<div class="tx-amt ' + invCls + '">' + invSign + fmtInvMoney(Number(t.amount)) + '</div>' +
             '<div class="tx-date">' + fmtDateShort(t.date) + '</div>' +
           '</div>' +
         '</div>';
@@ -417,12 +397,8 @@
 
   function renderDashboard() {
     var cash = totalCash();
-    var invValue = totalInvestmentValue();
-    var invCost = totalInvestmentCost();
-    var gain = invValue - invCost;
-    var gainPct = invCost > 0 ? (gain / invCost * 100) : 0;
     var debtRemainingTotal = totalDebtRemaining();
-    var netWorth = cash + invValue - debtRemainingTotal;
+    var netWorth = cash - debtRemainingTotal;
 
     var monthTx = transactionsForMonth(todayISO().slice(0,7));
     var income = monthTx.filter(function(t){ return t.type==='income'; }).reduce(function(s,t){ return s+Number(t.amount); },0);
@@ -436,7 +412,6 @@
       '<div class="hero-value">' + fmtMoney(netWorth) + '</div>' +
       '<div class="hero-split">' +
         '<div><span class="dot dot-cash"></span>เงินสด/บัญชี ' + fmtMoney(cash) + '</div>' +
-        '<div><span class="dot dot-invest"></span>การลงทุน ' + fmtInvMoney(invValue) + '</div>' +
         (Object.keys(state.debts).length ? '<div><span class="dot dot-debt"></span>หนี้คงเหลือ -' + fmtMoney(debtRemainingTotal) + '</div>' : '') +
       '</div></div>';
 
@@ -447,14 +422,6 @@
 
     html += renderExpenseTrendCard();
     html += renderBudgetCard();
-
-    html += '<div class="card wide-card">' +
-      '<div class="card-title-row">' +
-        '<div class="card-title">การลงทุน</div>' +
-        '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtInvMoney(gain) + ' (' + gainPct.toFixed(1) + '%)</div>' +
-      '</div>' +
-      (Object.keys(state.holdings).length ? '' : '<div class="empty-note">ยังไม่มีการลงทุนที่บันทึกไว้</div>') +
-    '</div>';
 
     html += renderDebtSummaryCard();
 
@@ -670,7 +637,6 @@
         '<option value="income"' + (txFilter.type==='income'?' selected':'') + '>รายรับ</option>' +
         '<option value="expense"' + (txFilter.type==='expense'?' selected':'') + '>รายจ่าย</option>' +
         '<option value="transfer"' + (txFilter.type==='transfer'?' selected':'') + '>โอนเงิน</option>' +
-        '<option value="investment"' + (txFilter.type==='investment'?' selected':'') + '>ลงทุน</option>' +
       '</select>' +
       '<select class="select-sm" data-action="filter-account">' +
         '<option value="all"' + (txFilter.accountId==='all'?' selected':'') + '>ทุกบัญชี</option>' + accOptions +
@@ -678,50 +644,6 @@
     '</div>';
     html += '<div class="card-title-row list-header"><span></span><button class="link-btn" data-action="add-transfer">⇄ โอนเงินระหว่างบัญชี</button></div>';
     html += '<div class="card list-card">' + (list.length ? list.map(txRow).join('') : '<div class="empty-note">ไม่มีรายการในเดือนนี้</div>') + '</div>';
-    return html;
-  }
-
-  function holdingCard(h) {
-    var val = holdingValue(h);
-    var cost = holdingCost(h);
-    var gain = val - cost;
-    var gainPct = cost > 0 ? gain/cost*100 : 0;
-    return '' +
-      '<div class="card holding-card">' +
-        '<div class="holding-top" data-action="edit-holding" data-id="' + h.id + '">' +
-          '<div><div class="holding-name">' + escapeHtml(h.symbol) + '<span class="tag">' + (assetTypeLabels[h.assetType]||'อื่นๆ') + '</span></div>' +
-          '<div class="holding-sub">' + escapeHtml(h.name||'') + '</div></div>' +
-          '<div class="holding-value-col"><div class="holding-value">' + fmtInvMoney(val) + '</div>' +
-          '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtInvMoney(gain) + ' (' + gainPct.toFixed(1) + '%)</div></div>' +
-        '</div>' +
-        '<div class="holding-meta">' +
-          '<span>จำนวน ' + fmtQty(h.quantity) + '</span>' +
-          '<span>ต้นทุนเฉลี่ย ' + fmtInvMoney(h.avgCost) + '</span>' +
-          '<span>ราคาล่าสุด ' + fmtInvMoney(h.currentPrice) + '</span>' +
-        '</div>' +
-        '<div class="holding-actions">' +
-          '<button class="chip-btn" data-action="update-price" data-id="' + h.id + '">อัปเดตราคา</button>' +
-          '<button class="chip-btn" data-action="record-invest-tx" data-id="' + h.id + '">ซื้อ/ขาย/ปันผล</button>' +
-        '</div>' +
-      '</div>';
-  }
-
-  function renderInvestments() {
-    var holdings = Object.values(state.holdings).sort(function(a,b){ return holdingValue(b) - holdingValue(a); });
-    var totalVal = totalInvestmentValue();
-    var totalCost = totalInvestmentCost();
-    var gain = totalVal - totalCost;
-    var gainPct = totalCost > 0 ? gain/totalCost*100 : 0;
-
-    var html = '';
-    html += '<div class="card hero-card invest-hero">' +
-      '<div class="hero-label">มูลค่าการลงทุนรวม</div>' +
-      '<div class="hero-value">' + fmtInvMoney(totalVal) + '</div>' +
-      '<div class="' + (gain>=0?'income-text':'expense-text') + ' small-bold">' + (gain>=0?'+':'') + fmtInvMoney(gain) + ' (' + (gainPct>=0?'+':'') + gainPct.toFixed(1) + '%) จากต้นทุน ' + fmtInvMoney(totalCost) + '</div>' +
-    '</div>';
-    html += '<div class="card-title-row list-header"><div class="card-title">รายการลงทุน</div>' +
-      '<button class="link-btn" data-action="add-holding">+ เพิ่มรายการ</button></div>';
-    html += holdings.length ? holdings.map(holdingCard).join('') : '<div class="card wide-card"><div class="empty-note">ยังไม่มีการลงทุน แตะ "+ เพิ่มรายการ" เพื่อเริ่มบันทึก</div></div>';
     return html;
   }
 
@@ -1096,78 +1018,6 @@
       '</form>';
   }
 
-  function holdingModal(existing) {
-    existing = existing || null;
-    return '' +
-      '<form id="holdingForm" class="modal-form">' +
-        modalHeader(existing ? 'แก้ไขรายการลงทุน' : 'เพิ่มรายการลงทุน') +
-        (existing ? hiddenField('id', existing.id) : '') +
-        textField('สัญลักษณ์/ชื่อย่อ', 'symbol', { value: existing ? existing.symbol : '', required: true, placeholder: 'เช่น PTT, SPY, BTC' }) +
-        textField('ชื่อเต็ม (ไม่บังคับ)', 'name', { value: existing ? (existing.name || '') : '', placeholder: 'เช่น บมจ.ปตท.' }) +
-        selectField('ประเภทสินทรัพย์', 'assetType', labelOptions(assetTypeLabels, existing && existing.assetType), false) +
-        numberField('จำนวนหน่วยที่ถืออยู่', 'quantity', { value: existing ? existing.quantity : '', placeholder: '0' }) +
-        numberField('ต้นทุนเฉลี่ยต่อหน่วย', 'avgCost', { value: existing ? existing.avgCost : '' }) +
-        numberField('ราคาตลาดล่าสุดต่อหน่วย', 'currentPrice', { value: existing ? existing.currentPrice : '' }) +
-        modalActions(existing ? deleteBtn('delete-holding', existing.id) : null) +
-      '</form>';
-  }
-
-  function updatePriceModal(h) {
-    return '' +
-      '<form id="priceForm" class="modal-form">' +
-        modalHeader('อัปเดตราคา · ' + escapeHtml(h.symbol)) +
-        hiddenField('id', h.id) +
-        numberField('ราคาตลาดล่าสุดต่อหน่วย (ปัจจุบัน ' + fmtInvMoney(h.currentPrice) + ')', 'currentPrice', { value: h.currentPrice }) +
-        modalActions(null) +
-      '</form>';
-  }
-
-  function investTxFields(type) {
-    if (type === 'dividend') {
-      return numberField('จำนวนเงินปันผลที่ได้รับ', 'amount');
-    }
-    return '' +
-      numberField('จำนวนหน่วย', 'quantity', { placeholder: '0' }) +
-      numberField('ราคาต่อหน่วย', 'price') +
-      numberField('ค่าธรรมเนียม (ไม่บังคับ)', 'fee', { required: false });
-  }
-
-  function investTxModal(h) {
-    return '' +
-      '<form id="investTxForm" class="modal-form">' +
-        modalHeader('บันทึกธุรกรรม · ' + escapeHtml(h.symbol)) +
-        hiddenField('holdingId', h.id) +
-        hiddenField('type', 'buy') +
-        typeToggle('invtx-type', [
-          { type: 'buy', label: 'ซื้อ' },
-          { type: 'sell', label: 'ขาย' },
-          { type: 'dividend', label: 'ปันผล' }
-        ], 'buy') +
-        selectField('บัญชีที่ใช้ซื้อ/รับเงิน', 'accountId', accountOptions(null)) +
-        '<div id="investTxFields">' + investTxFields('buy') + '</div>' +
-        dateField('วันที่', 'date', todayISO()) +
-        textField('โน้ต (ไม่บังคับ)', 'note', { placeholder: 'รายละเอียดเพิ่มเติม' }) +
-        modalActions(null) +
-      '</form>';
-  }
-
-  function investTxDetailModal(t) {
-    var holding = state.holdings[t.holdingId];
-    var acc = state.accounts[t.accountId];
-    var actionLabel = t.investAction === 'buy' ? 'ซื้อ' : (t.investAction === 'sell' ? 'ขาย' : 'ปันผล');
-    return '' +
-      '<div class="modal-form">' +
-        modalHeader(actionLabel + (holding ? ' · ' + escapeHtml(holding.symbol) : '')) +
-        fieldDisplay('บัญชี', acc ? escapeHtml(acc.name) : '-') +
-        (t.quantity != null ? fieldDisplay('จำนวนหน่วย · ราคาต่อหน่วย', fmtQty(t.quantity) + ' @ ' + fmtInvMoney(t.price) + (t.fee ? ' (ค่าธรรมเนียม ' + fmtInvMoney(t.fee) + ')' : '')) : '') +
-        fieldDisplay('จำนวนเงิน' + (t.investAction === 'buy' ? 'ที่หักจากบัญชี' : 'ที่เข้าบัญชี'), fmtInvMoney(t.amount)) +
-        fieldDisplay('วันที่', fmtDateFull(t.date)) +
-        (t.note ? fieldDisplay('โน้ต', escapeHtml(t.note)) : '') +
-        '<div class="tax-note">ลบรายการนี้จะคืนจำนวนหน่วย/ต้นทุนเฉลี่ยของ ' + (holding ? escapeHtml(holding.symbol) : 'สินทรัพย์นี้') + ' และคืนเงินสดในบัญชีให้ใกล้เคียงกับก่อนทำรายการนี้ (ถ้ามีการซื้อ/ขายอื่นคั่นอยู่ระหว่างนั้น ต้นทุนเฉลี่ยที่คืนอาจไม่ตรงเป๊ะ ควรตรวจสอบอีกครั้ง)</div>' +
-        '<div class="modal-actions">' + deleteBtn('delete-invest-tx', t.id, 'ลบรายการนี้') + '<span></span></div>' +
-      '</div>';
-  }
-
   function transferModal(existing) {
     existing = existing || {};
     var isEdit = !!existing.id;
@@ -1261,89 +1111,15 @@
     var data = { name: fd.name, type: fd.type };
     return fd.id ? Store.update('categories', fd.id, data) : Store.add('categories', data);
   }
-  function saveHolding(fd) {
-    var data = { symbol: fd.symbol, name: fd.name || '', assetType: fd.assetType, quantity: requirePositive(fd.quantity, 'จำนวนหน่วย'), avgCost: requirePositive(fd.avgCost, 'ต้นทุนเฉลี่ย'), currentPrice: requirePositive(fd.currentPrice, 'ราคาล่าสุด') };
-    return fd.id ? Store.update('holdings', fd.id, data) : Store.add('holdings', data);
-  }
-  function savePrice(fd) {
-    return Store.update('holdings', fd.id, { currentPrice: requirePositive(fd.currentPrice, 'ราคา') });
-  }
-  function saveInvestTx(fd) {
-    var holding = state.holdings[fd.holdingId];
-    if (!holding) return Promise.reject(new Error('ไม่พบรายการลงทุนนี้'));
-    if (!fd.accountId || !state.accounts[fd.accountId]) return Promise.reject(new Error('กรุณาเลือกบัญชีที่ใช้ซื้อ/รับเงิน'));
-    var type = fd.type;
-    var record = { holdingId: fd.holdingId, type: type, date: fd.date, note: fd.note || '', accountId: fd.accountId };
-    var updateP = Promise.resolve();
-    var cashAmount;
-
-    if (type === 'dividend') {
-      record.amount = requirePositive(fd.amount, 'จำนวนเงินปันผล');
-      cashAmount = record.amount;
-    } else {
-      var qty = requirePositive(fd.quantity, 'จำนวนหน่วย');
-      var price = requirePositive(fd.price, 'ราคาต่อหน่วย');
-      var fee = requirePositive(fd.fee || 0, 'ค่าธรรมเนียม');
-      record.quantity = qty; record.price = price; record.fee = fee;
-      record.amount = qty*price + (type==='buy'?fee:-fee);
-      cashAmount = record.amount;
-      var curQty = Number(holding.quantity) || 0;
-      var curAvg = Number(holding.avgCost) || 0;
-      if (type === 'buy') {
-        var newQty = curQty + qty;
-        var newAvg = newQty > 0 ? (curQty*curAvg + qty*price + fee) / newQty : 0;
-        updateP = Store.update('holdings', holding.id, { quantity: newQty, avgCost: newAvg });
-      } else if (type === 'sell') {
-        if (qty > curQty) return Promise.reject(new Error('จำนวนที่ขายมากกว่าที่ถืออยู่'));
-        updateP = Store.update('holdings', holding.id, { quantity: curQty - qty });
-      }
-    }
-    // เพิ่มธุรกรรมลงทุน (ต้นทุน/ปันผล) แล้วบันทึกรายการเงินสดคู่กันในบัญชีที่เลือก เพื่อให้ยอดเงินสด/มูลค่าสุทธิถูกต้อง
-    // (ซื้อ = หักเงินสดออกจากบัญชี, ขาย/ปันผล = เพิ่มเงินสดเข้าบัญชี — ดู accountBalance())
-    // เก็บ invTxnId + quantity/price/fee ไว้ในรายการเงินสดด้วย เพื่อให้ลบ/ย้อนรายการนี้ภายหลังได้ถูกต้อง (ดู confirmDeleteInvestTx)
-    return updateP.then(function(){ return Store.add('investmentTxns', record); }).then(function(invTxnId){
-      var actionLabel = type === 'buy' ? 'ซื้อ' : (type === 'sell' ? 'ขาย' : 'ปันผล');
-      return Store.add('transactions', {
-        type: 'investment', investAction: type, holdingId: fd.holdingId, accountId: fd.accountId,
-        amount: cashAmount, date: fd.date, invTxnId: invTxnId,
-        quantity: record.quantity, price: record.price, fee: record.fee,
-        note: (holding.symbol ? holding.symbol + ' · ' : '') + actionLabel + (fd.note ? ' · ' + fd.note : '')
-      });
-    });
-  }
-
   function confirmDeleteTx(id) {
     if (confirm('ลบรายการนี้ใช่หรือไม่')) { Store.remove('transactions', id); closeModal(); }
-  }
-  function confirmDeleteInvestTx(id) {
-    var t = state.transactions[id];
-    if (!t || t.type !== 'investment') return;
-    if (!confirm('ลบรายการนี้ใช่หรือไม่ (ระบบจะคืนจำนวนหน่วย/เงินสดในบัญชีให้ใกล้เคียงก่อนทำรายการนี้)')) return;
-    var holding = state.holdings[t.holdingId];
-    if (holding && t.investAction !== 'dividend' && t.quantity != null) {
-      var curQty = Number(holding.quantity) || 0;
-      var curAvg = Number(holding.avgCost) || 0;
-      if (t.investAction === 'buy') {
-        var newQty = Math.max(0, curQty - Number(t.quantity));
-        // ต้นทุนเฉลี่ยที่คืนคำนวณโดยหักต้นทุนของรายการนี้ออกจากต้นทุนรวมปัจจุบัน — แม่นยำ 100% เฉพาะกรณีไม่มีการซื้อ/ขายอื่นคั่นระหว่างนั้น
-        var removedCost = Number(t.quantity) * Number(t.price || 0) + Number(t.fee || 0);
-        var newTotalCost = Math.max(0, curQty * curAvg - removedCost);
-        var newAvg = newQty > 0 ? newTotalCost / newQty : 0;
-        Store.update('holdings', holding.id, { quantity: newQty, avgCost: newAvg });
-      } else if (t.investAction === 'sell') {
-        Store.update('holdings', holding.id, { quantity: curQty + Number(t.quantity) });
-      }
-    }
-    if (t.invTxnId) Store.remove('investmentTxns', t.invTxnId);
-    Store.remove('transactions', id);
-    closeModal();
   }
   function confirmDeleteAccount(id) {
     var hasTx = Object.values(state.transactions).some(function(t){
       if (t.type === 'transfer') return t.fromAccountId === id || t.toAccountId === id;
       return t.accountId === id;
     });
-    if (hasTx) { alert('ไม่สามารถลบบัญชีที่มีรายการอยู่ได้ (รวมถึงรายการโอนเงิน/ธุรกรรมลงทุน) กรุณาลบหรือย้ายรายการก่อน'); return; }
+    if (hasTx) { alert('ไม่สามารถลบบัญชีที่มีรายการอยู่ได้ (รวมถึงรายการโอนเงิน) กรุณาลบหรือย้ายรายการก่อน'); return; }
     var hasRecurring = Object.values(state.recurringTemplates).some(function(r){ return r.accountId === id; });
     if (hasRecurring) { alert('ไม่สามารถลบบัญชีที่มีรายการเกิดซ้ำ (เช่น ค่าเช่า, ค่าบริการรายเดือน) ผูกอยู่ได้ กรุณาลบหรือย้ายรายการเกิดซ้ำก่อน'); return; }
     if (confirm('ลบบัญชีนี้ใช่หรือไม่')) { Store.remove('accounts', id); closeModal(); }
@@ -1352,9 +1128,6 @@
     var hasTx = Object.values(state.transactions).some(function(t){ return t.categoryId===id; });
     if (hasTx) { alert('ไม่สามารถลบหมวดหมู่ที่มีรายการอยู่ได้'); return; }
     if (confirm('ลบหมวดหมู่นี้ใช่หรือไม่')) { Store.remove('categories', id); }
-  }
-  function confirmDeleteHolding(id) {
-    if (confirm('ลบรายการลงทุนนี้ใช่หรือไม่ (ประวัติธุรกรรมจะยังคงอยู่)')) { Store.remove('holdings', id); closeModal(); }
   }
 
   function saveDebt(fd) {
@@ -1399,16 +1172,8 @@
     var fd = Object.fromEntries(new FormData(form).entries());
     openModal(transactionModal({ id: fd.id, type: newType, amount: fd.amount, accountId: fd.accountId, date: fd.date, note: fd.note }));
   }
-  function handleInvTxTypeSwitch(newType) {
-    var form = document.getElementById('investTxForm');
-    form.querySelectorAll('.type-btn').forEach(function(b){ b.classList.toggle('active', b.dataset.type===newType); });
-    form.querySelector('input[name="type"]').value = newType;
-    document.getElementById('investTxFields').innerHTML = investTxFields(newType);
-  }
-
   function handleFabAdd() {
     if (!allReady()) return;
-    if (currentTab === 'investments') { openModal(holdingModal(null)); return; }
     if (currentTab === 'debts') {
       if (isCreditDebtId(selectedDebtId)) {
         // บัตรเครดิตคำนวณยอดหนี้สดจากบัญชี ไม่มีฟอร์มบันทึกการผ่อนชำระให้ใช้ — กันไม่ให้สร้าง debtPayments ที่ผูกกับ debtId ปลอม
@@ -1433,13 +1198,6 @@
         var fromName = (state.accounts[t.fromAccountId]&&state.accounts[t.fromAccountId].name)||'';
         var toName = (state.accounts[t.toAccountId]&&state.accounts[t.toAccountId].name)||'';
         rows.push([ t.date, 'โอนเงิน', fromName + ' → ' + toName, '', t.amount, t.note||'' ]);
-        return;
-      }
-      if (t.type === 'investment') {
-        var invAccName = (state.accounts[t.accountId]&&state.accounts[t.accountId].name)||'';
-        var invHoldingName = (state.holdings[t.holdingId]&&state.holdings[t.holdingId].symbol)||'';
-        var invLabel = t.investAction==='buy' ? 'ซื้อการลงทุน' : (t.investAction==='sell' ? 'ขายการลงทุน' : 'ปันผล');
-        rows.push([ t.date, invLabel, invAccName, invHoldingName, t.amount, t.note||'' ]);
         return;
       }
       rows.push([ t.date, t.type==='income'?'รายรับ':'รายจ่าย',
@@ -1476,19 +1234,11 @@
       case 'edit-tx':
         var txItem = state.transactions[id];
         if (txItem && txItem.type === 'transfer') openModal(transferModal(txItem));
-        else if (txItem && txItem.type === 'investment') openModal(investTxDetailModal(txItem));
         else openModal(transactionModal(txItem));
         break;
       case 'delete-tx': confirmDeleteTx(id); break;
-      case 'delete-invest-tx': confirmDeleteInvestTx(id); break;
       case 'tx-type': handleTxTypeSwitch(el.dataset.type); break;
       case 'add-transfer': openModal(transferModal(null)); break;
-      case 'add-holding': openModal(holdingModal(null)); break;
-      case 'edit-holding': openModal(holdingModal(state.holdings[id])); break;
-      case 'delete-holding': confirmDeleteHolding(id); break;
-      case 'update-price': openModal(updatePriceModal(state.holdings[id])); break;
-      case 'record-invest-tx': openModal(investTxModal(state.holdings[id])); break;
-      case 'invtx-type': handleInvTxTypeSwitch(el.dataset.type); break;
       case 'export-csv': exportCsv(); break;
       case 'sign-out': confirmSignOut(); break;
       case 'auth-tab': showAuthTab(el.dataset.authtab); break;
@@ -1531,9 +1281,6 @@
       else if (form.id === 'transferForm') action = saveTransfer(fd);
       else if (form.id === 'accountForm') action = saveAccount(fd);
       else if (form.id === 'categoryForm') action = saveCategory(fd);
-      else if (form.id === 'holdingForm') action = saveHolding(fd);
-      else if (form.id === 'priceForm') action = savePrice(fd);
-      else if (form.id === 'investTxForm') action = saveInvestTx(fd);
       else if (form.id === 'debtForm') action = saveDebt(fd);
       else if (form.id === 'paymentForm') action = savePayment(fd);
       else if (form.id === 'budgetForm') action = saveBudget(fd);
