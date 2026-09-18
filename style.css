@@ -1,4 +1,4 @@
-/* สมุดบัญชีของฉัน — style.css */
+/* Puddles Along the Way — style.css */
 /* โทนสี "Somewhere After Rain": ครีม-โอลีฟ-เขียวเซจ-อิฐ-ทองอำพัน */
   :root {
     color-scheme: light;
@@ -67,7 +67,7 @@
 
   .app { max-width: 480px; margin: 0 auto; min-height: 100vh; padding-bottom: 92px; position: relative; }
   .topbar { position: sticky; top: 0; z-index: 5; background: var(--bg); padding: 18px 16px 6px; display: flex; align-items: center; gap: 10px; }
-  .topbar-icon { width: 32px; height: 32px; border-radius: 9px; display: block; flex-shrink: 0; }
+  .topbar-icon { width: 40px; height: 40px; border-radius: 50%; display: block; flex-shrink: 0; }
   .topbar-name { font-size: 17px; font-weight: 600; font-family: var(--font-display); }
   .sync-status { font-size: 12px; color: var(--muted); margin-top: 1px; }
 
@@ -226,7 +226,7 @@
   .loading-screen { min-height: 100vh; display: flex; align-items: center; justify-content: center; }
   .auth-screen { min-height: 100vh; display: none; align-items: center; justify-content: center; padding: 24px; }
   .auth-card { background: var(--surface); border: 1px solid var(--border); border-radius: 20px; padding: 28px 24px; width: 100%; max-width: 380px; text-align: center; }
-  .auth-logo { width: 64px; height: 64px; border-radius: 16px; margin: 0 auto 10px; display: block; }
+  .auth-logo { width: 140px; height: 140px; border-radius: 50%; margin: 0 auto 14px; display: block; }
   .auth-title { font-family: var(--font-display); font-size: 19px; font-weight: 600; margin-bottom: 18px; }
   .auth-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
   .auth-form { display: flex; flex-direction: column; gap: 12px; text-align: left; }
@@ -236,7 +236,7 @@
   /* ---------- desktop sidebar (hidden on mobile, shown at the desktop breakpoint below) ---------- */
   .sidebar { display: none; flex-direction: column; padding: 20px 14px; gap: 18px; background: var(--surface); border-right: 1px solid var(--border); }
   .brand-row { display: flex; align-items: center; gap: 10px; padding: 0 4px; }
-  .brand-icon { width: 34px; height: 34px; border-radius: 10px; flex-shrink: 0; }
+  .brand-icon { width: 40px; height: 40px; border-radius: 50%; flex-shrink: 0; }
   .brand-name { font-family: var(--font-display); font-size: 15.5px; font-weight: 600; line-height: 1.25; }
   .side-nav { display: flex; flex-direction: column; gap: 2px; margin-top: 4px; }
   .side-link { display: flex; flex-direction: row; align-items: center; gap: 11px; padding: 9px 10px; border-radius: 10px; width: 100%; text-align: left; font-size: 13.5px; color: var(--ink-soft); font-family: var(--font-th); }
