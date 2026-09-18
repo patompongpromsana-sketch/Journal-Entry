@@ -128,6 +128,10 @@
   .select-sm { flex: 1; padding: 9px 10px; border-radius: 10px; border: 1px solid var(--border); background: var(--surface); color: var(--ink); font-size: 13px; }
   .list-card { padding: 4px 16px; }
 
+  /* ---------- กลุ่มคอลัมน์: หน้าตั้งค่า / หน้ารายการ (จอกว้าง) ---------- */
+  .settings-col { display: flex; flex-direction: column; gap: 12px; }
+  .tx-col-left { display: flex; flex-direction: column; gap: 12px; }
+
   .holding-card { display: flex; flex-direction: column; gap: 10px; }
   .holding-top { display: flex; justify-content: space-between; cursor: pointer; gap: 10px; }
   .holding-name { font-weight: 600; font-size: 15px; font-family: var(--font-display); }
@@ -280,4 +284,19 @@
     .tab-content.grid-tab > .wide-card {
       grid-column: 1 / -1;
     }
+
+    /* หน้ารายการ: ซ้ายแคบ (สรุปรายรับ/รายจ่าย + ตัวกรอง) + ขวากว้าง (รายการ) */
+    .tab-content.tx-grid {
+      display: grid;
+      grid-template-columns: 320px 1fr;
+      align-items: start;
+      align-content: start;
+      gap: 20px;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .tab-content.tx-grid > .month-nav { grid-column: 1 / -1; }
+    .tx-col-left .grid-2 { grid-template-columns: 1fr; }
+    .tx-col-left .filter-row { flex-direction: column; }
   }

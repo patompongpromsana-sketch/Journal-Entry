@@ -422,7 +422,8 @@
   }
 
   function renderTab() {
-    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'debts' || currentTab === 'investments');
+    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'debts' || currentTab === 'investments' || currentTab === 'settings');
+    tabContentEl.classList.toggle('tx-grid', currentTab === 'transactions');
     if (!allReady()) {
       tabContentEl.innerHTML = '<div class="card"><div class="empty-note">กำลังโหลดข้อมูล...</div></div>';
       return;
@@ -738,17 +739,21 @@
       return '<option value="' + a.id + '"' + (txFilter.accountId===a.id?' selected':'') + '>' + escapeHtml(a.name) + '</option>';
     }).join('');
 
+    // จอกว้าง: ย้ายการ์ดสรุป (รายรับ/รายจ่าย) + ตัวกรอง + ลิงก์โอนเงิน ไปไว้คอลัมน์ซ้ายแคบ (.tx-col-left)
+    // รายการทั้งหมดอยู่คอลัมน์ขวา เต็มความสูง (ดู .tab-content.tx-grid ใน style.css) — มือถือยังเรียงต่อกันลงมาเหมือนเดิม
     var html = '';
     html += '<div class="month-nav">' +
       '<button class="icon-btn" data-action="month-prev">‹</button>' +
       '<div class="month-label">' + monthLabel + '</div>' +
       '<button class="icon-btn" data-action="month-next">›</button>' +
     '</div>';
-    html += '<div class="grid-2">' +
+
+    var left = '';
+    left += '<div class="grid-2">' +
       '<div class="card stat-card"><div class="stat-label">รายรับ</div><div class="stat-value income-text">' + fmtMoney(income) + '</div></div>' +
       '<div class="card stat-card"><div class="stat-label">รายจ่าย</div><div class="stat-value expense-text">' + fmtMoney(expense) + '</div></div>' +
     '</div>';
-    html += '<div class="filter-row">' +
+    left += '<div class="filter-row">' +
       '<select class="select-sm" data-action="filter-type">' +
         '<option value="all"' + (txFilter.type==='all'?' selected':'') + '>ทุกประเภท</option>' +
         '<option value="income"' + (txFilter.type==='income'?' selected':'') + '>รายรับ</option>' +
@@ -760,8 +765,12 @@
         '<option value="all"' + (txFilter.accountId==='all'?' selected':'') + '>ทุกบัญชี</option>' + accOptions +
       '</select>' +
     '</div>';
-    html += '<div class="card-title-row list-header"><span></span><button class="link-btn" data-action="add-transfer">⇄ โอนเงินระหว่างบัญชี</button></div>';
-    html += '<div class="card list-card">' + (list.length ? list.map(txRow).join('') : '<div class="empty-note">ไม่มีรายการในเดือนนี้</div>') + '</div>';
+    left += '<div class="card-title-row list-header"><span></span><button class="link-btn" data-action="add-transfer">⇄ โอนเงินระหว่างบัญชี</button></div>';
+    html += '<div class="tx-col-left">' + left + '</div>';
+
+    html += '<div class="tx-col-right"><div class="card list-card">' +
+      (list.length ? list.map(txRow).join('') : '<div class="empty-note">ไม่มีรายการในเดือนนี้</div>') +
+    '</div></div>';
     return html;
   }
 
@@ -1058,34 +1067,42 @@
     var incomeCats = cats.filter(function(c){ return c.type==='income'; });
     var expenseCats = cats.filter(function(c){ return c.type==='expense'; });
 
-    var html = '';
-    html += '<div class="card-title-row list-header"><div class="card-title">บัญชี/กระเป๋าเงิน</div>' +
+    // ฝั่งซ้าย: บัญชี/กระเป๋าเงิน + หมวดรายรับ, ฝั่งขวา: หมวดรายจ่าย + งบประมาณรายเดือน
+    // (ห่อด้วย .settings-col เพื่อไม่ให้ .list-header/.list-card ข้างในถูกขยายเต็มความกว้างอัตโนมัติจาก .grid-tab)
+    var left = '';
+    left += '<div class="card-title-row list-header"><div class="card-title">บัญชี/กระเป๋าเงิน</div>' +
       '<button class="link-btn" data-action="add-account">+ เพิ่มบัญชี</button></div>';
-    html += '<div class="card list-card">' + (accs.length ? accs.map(function(a){
+    left += '<div class="card list-card">' + (accs.length ? accs.map(function(a){
       return '<div class="settings-row" data-action="edit-account" data-id="' + a.id + '">' +
         '<div><div class="settings-row-title">' + escapeHtml(a.name) + '</div>' +
         '<div class="settings-row-sub">' + (accountTypeLabels[a.type]||'อื่นๆ') + '</div></div>' +
         '<div class="settings-row-val">' + fmtMoney(accountBalance(a.id)) + '</div></div>';
     }).join('') : '<div class="empty-note">ยังไม่มีบัญชี</div>') + '</div>';
 
-    html += '<div class="card-title-row list-header"><div class="card-title">หมวดรายรับ</div>' +
+    left += '<div class="card-title-row list-header"><div class="card-title">หมวดรายรับ</div>' +
       '<button class="link-btn" data-action="add-category" data-cattype="income">+ เพิ่ม</button></div>';
-    html += '<div class="card list-card">' + (incomeCats.length ? incomeCats.map(catRow).join('') : '<div class="empty-note">ยังไม่มีหมวดรายรับ</div>') + '</div>';
+    left += '<div class="card list-card">' + (incomeCats.length ? incomeCats.map(catRow).join('') : '<div class="empty-note">ยังไม่มีหมวดรายรับ</div>') + '</div>';
 
-    html += '<div class="card-title-row list-header"><div class="card-title">หมวดรายจ่าย</div>' +
+    var right = '';
+    right += '<div class="card-title-row list-header"><div class="card-title">หมวดรายจ่าย</div>' +
       '<button class="link-btn" data-action="add-category" data-cattype="expense">+ เพิ่ม</button></div>';
-    html += '<div class="card list-card">' + (expenseCats.length ? expenseCats.map(catRow).join('') : '<div class="empty-note">ยังไม่มีหมวดรายจ่าย</div>') + '</div>';
+    right += '<div class="card list-card">' + (expenseCats.length ? expenseCats.map(catRow).join('') : '<div class="empty-note">ยังไม่มีหมวดรายจ่าย</div>') + '</div>';
 
-    html += '<div class="card-title-row list-header"><div class="card-title">งบประมาณรายเดือน</div></div>';
-    html += '<div class="card list-card">' + (expenseCats.length ? expenseCats.map(budgetRow).join('') : '<div class="empty-note">เพิ่มหมวดรายจ่ายก่อนเพื่อตั้งงบประมาณ</div>') + '</div>';
+    right += '<div class="card-title-row list-header"><div class="card-title">งบประมาณรายเดือน</div></div>';
+    right += '<div class="card list-card">' + (expenseCats.length ? expenseCats.map(budgetRow).join('') : '<div class="empty-note">เพิ่มหมวดรายจ่ายก่อนเพื่อตั้งงบประมาณ</div>') + '</div>';
 
+    var html = '';
+    html += '<div class="settings-col">' + left + '</div>';
+    html += '<div class="settings-col">' + right + '</div>';
+
+    // ด้านล่าง: รายการที่เกิดซ้ำทุกเดือน + บัญชีผู้ใช้ อยู่ตำแหน่งเดิม แต่ขยายเต็มความกว้างในจอกว้าง (ตาม .list-header/.list-card ที่เป็น direct child ของ .grid-tab)
     html += '<div class="card-title-row list-header"><div class="card-title">รายการที่เกิดซ้ำทุกเดือน</div>' +
       '<button class="link-btn" data-action="add-recurring">+ เพิ่ม</button></div>';
     var recurringList = Object.values(state.recurringTemplates);
     html += '<div class="card list-card">' + (recurringList.length ? recurringList.map(recurringRow).join('') : '<div class="empty-note">ยังไม่มีรายการที่เกิดซ้ำ เช่น ค่าเช่า ค่าบริการรายเดือน</div>') + '</div>';
 
     html += '<div class="card-title-row list-header"><div class="card-title">บัญชีผู้ใช้</div></div>';
-    html += '<div class="card">' +
+    html += '<div class="card wide-card">' +
       '<div class="settings-row"><div><div class="settings-row-title">เข้าสู่ระบบด้วย</div>' +
       '<div class="settings-row-sub">' + escapeHtml(currentUserEmail) + ' · ซิงค์ทุกอุปกรณ์ที่ล็อกอินบัญชีนี้</div></div></div>' +
       '<button class="secondary-btn full-btn" data-action="export-csv">ส่งออกรายการเป็น CSV</button>' +
