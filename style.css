@@ -250,7 +250,8 @@
       display: grid;
       grid-template-columns: 236px 1fr;
       grid-template-areas: "side content";
-      max-width: 1240px;
+      max-width: none;
+      width: 100%;
       padding-bottom: 0;
       height: 100vh;
       overflow: hidden;
@@ -258,13 +259,17 @@
     .sidebar { display: flex; grid-area: side; height: 100%; }
     .topbar, .fab-wrap, .tabbar-wrap { display: none; }
     .tab-content { grid-area: content; padding: 28px 36px 44px; height: 100%; overflow-y: auto; align-content: start; }
-    .tab-content:not(.grid-tab) { max-width: 640px; }
+    .tab-content:not(.grid-tab) { max-width: 720px; margin: 0 auto; width: 100%; }
 
     .tab-content.grid-tab {
       display: grid;
       grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
       align-items: start;
+      align-content: start;
       gap: 16px;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
     }
     .tab-content.grid-tab > .hero-card,
     .tab-content.grid-tab > .grid-2,
