@@ -422,8 +422,9 @@
   }
 
   function renderTab() {
-    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'debts' || currentTab === 'investments' || currentTab === 'settings');
+    tabContentEl.classList.toggle('grid-tab', currentTab === 'dashboard' || currentTab === 'debts' || currentTab === 'investments');
     tabContentEl.classList.toggle('tx-grid', currentTab === 'transactions');
+    tabContentEl.classList.toggle('settings-grid', currentTab === 'settings');
     if (!allReady()) {
       tabContentEl.innerHTML = '<div class="card"><div class="empty-note">กำลังโหลดข้อมูล...</div></div>';
       return;

@@ -285,6 +285,24 @@
       grid-column: 1 / -1;
     }
 
+    /* หน้าตั้งค่า: 2 คอลัมน์เท่ากัน (ซ้าย: บัญชี+รายรับ / ขวา: รายจ่าย+งบประมาณ) เต็มความกว้าง
+       ใช้ grid-template-columns คงที่แทน auto-fit เพราะ auto-fit กับแค่ 2 item ไม่ยืดเต็มจอกว้างเสมอไป */
+    .tab-content.settings-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      align-items: start;
+      align-content: start;
+      gap: 16px;
+      max-width: 1400px;
+      margin: 0 auto;
+      width: 100%;
+    }
+    .tab-content.settings-grid > .list-header,
+    .tab-content.settings-grid > .list-card,
+    .tab-content.settings-grid > .wide-card {
+      grid-column: 1 / -1;
+    }
+
     /* หน้ารายการ: ซ้ายแคบ (สรุปรายรับ/รายจ่าย + ตัวกรอง) + ขวากว้าง (รายการ) */
     .tab-content.tx-grid {
       display: grid;
